@@ -1,0 +1,20 @@
+{
+    "Essential inputs below": "Read 'README.txt' for instructions",
+    
+    "csv_path": "example_filename.csv",
+    "elsevier_apikey": "",
+    "colname_title": "",
+    "colname_DOI": "",
+
+    "Data-to-extract inputs below": "Read 'README.txt' for instructions",
+
+    "extract_citation_count": "",
+    "extract_first_last_author": "",
+    "extract_author_count": "",
+    "extract_journal": "",
+
+    "Optional inputs below:": "Read 'README.txt' for more information",
+
+    "create_separate_csv": "",
+    "output_citation_data_full": ""
+}
