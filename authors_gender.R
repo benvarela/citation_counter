@@ -13,17 +13,17 @@ json_data <- fromJSON(file = "config.json")
 gender_api_key <- json_data[["gender-api.com_apikey"]]
 
 # MODIFICATION: Now, data is read from the citation_counter_output.csv, and formatted so that the R program can see if as it would appear otherwise. CHATGPT ASSIST
-article.data <- read.csv("citation_counter_output.csv", stringsAsFactors = FALSE)
+article.data <- read.csv("name_csvs/citation_counter_output.csv", stringsAsFactors = FALSE)
 names(article.data)[names(article.data) == "first_last_author"] <- "AF"
 
 # Read in dataset of common nicknames for variant matching
 # E.g., to match Ray Dolan to Raymond Dolan
-nicknames=as.matrix(read.csv("nicknames.csv",header=F))
+nicknames=as.matrix(read.csv("name_csvs/nicknames.csv",header=F))
 nicknames=tolower(nicknames)
 
 # Read in dataset of likely genders for nicknames
 # Used to avoid matching e.g. Chris Smith & Christina Smith
-nickname.gends=read.csv("nickname.gends.csv",header=T,stringsAsFactors=F)[,-1]
+nickname.gends=read.csv("name_csvs/nickname.gends.csv",header=T,stringsAsFactors=F)[,-1]
 
 # Save number of cores on machine
 # Note: Some of the functions in this step take a fair bit of compute power
