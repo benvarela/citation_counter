@@ -1,6 +1,6 @@
 .DS_Store
-__pycache__
-data
-logs
 citation_counter_output.csv
+__pycache__
+logs
+data
 dump.json
