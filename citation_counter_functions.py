@@ -16,8 +16,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import sys
 
-# CODE FROM CHATGPT TO SUPPRESS MESSAGE: 'Backend MacOSX is interactive backend. Turning interactive mode on.' Comes from Matplotlib for some reason.
-sys.stderr = open('/dev/null', 'w')  # Redirect stderr to null
+# Only apply to Darwin systems (macOS)
+if sys.platform == 'darwin':
+    # CODE FROM CHATGPT TO SUPPRESS MESSAGE: 'Backend MacOSX is interactive backend. Turning interactive mode on.' Comes from Matplotlib for some reason.
+    sys.stderr = open('/dev/null', 'w')  # Redirect stderr to null
 plt.switch_backend('Agg')  # Use a non-interactive backend
 sys.stderr = sys.__stderr__  # Restore stderr
 
@@ -102,8 +104,25 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[pd.Ser
     # Extract pd.Series object of the Titles and DOIs of all papers in the user provided csv
     try:
         with open(csv_path) as csv_data:
-            all_user_data = pd.read_csv(csv_path, encoding='unicode_escape')
+            encode = 'unicode_escape'
+            all_user_data = pd.read_csv(csv_path, encoding=encode)
             all_user_data.fillna(0, inplace=True)
+
+            # Check if the first column contains the UTF-8BOM character
+            if all_user_data.columns[0] == 'ï»¿':
+                # If it does, reload the CSV with the correct encoding
+                encode = 'utf-8'
+                print("Found a file with UTF-8 encoding. Reloading CSV with this encoding.")
+                all_user_data = pd.read_csv(csv_path, encoding=encode)
+                all_user_data.fillna(0, inplace=True)
+
+            # Check if the first row contains the column headers
+            if colname_DOI not in all_user_data.columns or colname_title not in all_user_data.columns:
+                # It doesn't, so check the second row. If they are not in the second row the program will error.
+                print("Headers were not found in the first row, checking if second row contains headers.")
+                all_user_data = pd.read_csv(csv_path, encoding=encode, skiprows=1)
+                all_user_data.fillna(0, inplace=True)
+            
             DOIs = all_user_data[colname_DOI]
             Titles = all_user_data[colname_title]
     except Exception as e:
