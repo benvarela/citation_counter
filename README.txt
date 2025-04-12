@@ -40,6 +40,6 @@ Once that's done, you should be able to run citation_coutner.py and then authors
 Output notes:
 The data csv is output to the working directory, with the name 'citation_counter_output.csv,' and if output_citation_data_full is "True", a png will be output called "citation_counter_visual_summary.png"
 The open source module 'elsapy' is used to interface with the Elsevier API. This module outputs dump.json, a folder called 'logs' and a folder called 'data'. These can be deleted and do not affect the function of the elsapy module.
-Once 'citation_counter_output.csv' is output to the working directory, authors_gender.R is able to be run. It will add the gender probability columns to the csv file.
+Once 'citation_counter_output.csv' is output to the working directory, authors_gender.R is able to be run. It will add the gender probability columns to the csv file (first_prob_male, first_prob_female, last_prob_male, last_prob_female). -1 is assigned as an NA equivalent when intials are passed or something unexpected occurs.
 
 This module was authored by Benjamin Varela. It uses open source modules 'elsapy' and 'semanticscholar'. Last edited 09/04/2025 (DD/MM/YYYY)
