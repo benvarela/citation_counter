@@ -409,6 +409,9 @@ get.all.family=function(x,authlist){
   return(lnames)
 }
 get.preferred=function(x){
+  if (length(x) == 0 || is.na(x) || is.null(x)) {
+    return("")
+  }
   if(grepl("\\.",x)==TRUE & x!=toupper(x)){
     name=gsub("\\."," ",x)
     name=strsplit(name," ")[[1]]
