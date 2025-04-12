@@ -3,6 +3,7 @@
     
     "csv_path": "example_filename.csv",
     "elsevier_apikey": "",
+    "gender-api.com_apikey": "",
     "colname_title": "",
     "colname_DOI": "",
 

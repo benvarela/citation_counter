@@ -246,6 +246,41 @@ def get_elsevier_data(doi_series: pd.Series, title_series: pd.Series, els_client
 
     return data_dict, warning_rows
 
+def reformat_author_names(first: str, last: str) -> str:
+    '''
+    This function takes the two author names, in the format [First] [Last], and reformats them into one string, such that the format is [Last_1st],[First_1st];[Last_last],[First_last]
+    This has been done in particular to interface well with the R code that classifies the names according to gender. The github of the main branch is here: https://github.com/jdwor/gendercitation
+
+    This function is used in the following: get_semanticscholar_data function
+
+    INPUTS: first: str the first author's name as a string in format [First] [Last], last: str the last author's name as a string in format [First] [Last]
+    OUTPUTS: names: str reformatted names as [Last_1st],[First_1st];[Last_last],[First_last]
+    '''
+    auth1 = first.split(sep = ' ')
+    authl = last.split(sep = ' ')
+    a1 = [0, 0]
+    al = [0, 0]
+    # Check through to make sure the names exist, replace with X. if not
+    try:
+        a1[0] = auth1[0]
+    except IndexError:
+        a1[0] = 'X.'
+    try:
+        a1[1] = auth1[1]
+    except IndexError:
+        a1[1] = 'X.'    
+    try:
+        al[0] = authl[0]
+    except IndexError:
+        al[0] = 'X.'    
+    try:
+        al[1] = authl[1]
+    except IndexError:
+        al[1] = 'X.'
+    # Concatenate all together
+    names = a1[1] + ', ' + a1[0] + '; ' + al[1] + ', ' + al[0]
+    return names
+
 def get_semanticscholar_data(doi_series: pd.Series, title_series: pd.Series, data_dict: dict, output_citation_data_full: bool, warning_rows: list) -> dict:
     '''
     Extracts citation count, journal and author information for all required papers using the Semantic Scholar API, adding them to data_dict.
@@ -329,7 +364,8 @@ def get_semanticscholar_data(doi_series: pd.Series, title_series: pd.Series, dat
                 #Extract first and last authors
                 first_author = authors[0]['name']
                 last_author = authors[-1]['name']
-                data_dict[i]['first_last_author'] = first_author + ', ' + last_author
+                names = reformat_author_names(first_author, last_author)
+                data_dict[i]['first_last_author'] = names
 
                 #Extract the number of authors
                 num_authors = len(authors)
