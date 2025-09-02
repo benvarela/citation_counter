@@ -8,43 +8,29 @@ Author: Ben Varela
 #imports
 import json
 import pandas as pd
+from pathlib import Path
 from elsapy.elsclient import ElsClient
 from elsapy.elssearch import ElsSearch
 from elsapy.elsdoc import FullDoc
 from semanticscholar import SemanticScholar
-import matplotlib.pyplot as plt
 import numpy as np
-import sys
 
-# Only apply to Darwin systems (macOS)
-if sys.platform == 'darwin':
-    # CODE FROM CHATGPT TO SUPPRESS MESSAGE: 'Backend MacOSX is interactive backend. Turning interactive mode on.' Comes from Matplotlib for some reason.
-    sys.stderr = open('/dev/null', 'w')  # Redirect stderr to null
-plt.switch_backend('Agg')  # Use a non-interactive backend
-sys.stderr = sys.__stderr__  # Restore stderr
-
-def readbool(parameter_name: str, json_dict: dict) -> bool:
-    ''' 
-    Used within the readjson() function below
-
-    Converts the user input for the boolean parameters of config.json to a boolean
-
-    INPUTS: parameter_name: str key to the field in the json file, json_dict: the dictionary output from reading the json file
-    OUTPUTS: return_value: bool the boolean entered by the user as a python bool
-'''
-    if json_dict[parameter_name].lower() == "false":
-        return_value = False #Just in case the user entered "False". the bool() function would return True in this case
-    else:
-        return_value = bool(json_dict[parameter_name])
-    return return_value
-
-def readjson() -> tuple[str, str, str, str, bool, bool, bool, bool, bool, bool]:
+def readjson() -> dict:
     '''
-    This function reads the file config.json, in order to output its information to the code body
+    This function reads the file config.json
 
     INPUTS: None
-    OUTPUTS: csv_path path to the csv containing DOIs and Title for each paper, elsevier_apikey the user's elsevier API key, colname_title column name that contains title information, colname_DOI column name that contains DOI information, create_separate_csv bool whether user wants to create a separate csv with citation counts or append to the original, output_citation_data_full whether the user wants all the citation counts that can be found looking through both APIs, instead of searching Elsevier and then Semantic Scholar for whatever is left
+    OUTPUTS: 
+        data: dict. Dictionary with the following structure:
+            {
+                "csv_path": str,                 # Path to the CSV file(s)
+                "elsevier_apikey": str,          # Elsevier API key
+                "colname_title": str,            # Column name containing titles
+                "colname_DOI": str,              # Column name containing DOIs
+                "metadata_in_separate_csv": str  # Either "" or "True"
+            }
     '''
+
     #Open the json file
     try:
         with open("config.json") as con_file:
@@ -52,79 +38,63 @@ def readjson() -> tuple[str, str, str, str, bool, bool, bool, bool, bool, bool]:
     except Exception as e:
         print("ERROR: Make sure there is a file name config.json in this folder. More information:\n")
         raise
+
+    #Check appropriate input for metadata_in_separate_csv
+    v = con["metadata_in_separate_csv"]
+    if v not in ("", "True"):
+        raise ValueError(f"Invalid value for metadata_in_separate_csv: {v!r}. Expected '' or 'True'.")
     
     #Extract values
+    data = {
+    "csv_path": con["csv_path"],
+    "elsevier_apikey": con["elsevier_apikey"],
+    "colname_title": con["colname_title"],
+    "colname_DOI": con["colname_DOI"],
+    "metadata_in_separate_csv": con["metadata_in_separate_csv"],
+    }
 
-    #Essential parameters
-    csv_path = con['csv_path']
-    elsevier_apikey = con['elsevier_apikey']
-    colname_title = con['colname_title']
-    colname_DOI = con['colname_DOI']
-
-    #Data-to-extract parameters
-    extract_citation_count = readbool("extract_citation_count", con)
-    extract_first_last_author = readbool("extract_first_last_author", con)
-    extract_author_count = readbool("extract_author_count", con)
-    extract_journal = readbool("extract_journal", con)
-
-    #Optional parameters
-    create_separate_csv = readbool("create_separate_csv", con)
-    output_citation_data_full = readbool("output_citation_data_full", con)
-    
-    data = (csv_path, elsevier_apikey, colname_title, colname_DOI,                                          #Essential parameters
-            extract_citation_count, extract_first_last_author, extract_author_count, extract_journal,       #Data-to-extract parameters
-            create_separate_csv, output_citation_data_full)                                                 #Optional parameters
-
-    #Communicate to user what inputs are
+    #User communication
     print("\n** Inputs read! Your inputs are: **")
-
-    print("csv_path: {}".format(csv_path))
-    print("elsevier_apikey: {}".format(elsevier_apikey))
-    print("colname_title: {}".format(colname_title))
-    print("colname_DOI: {}".format(colname_DOI))
-
-    print("extract_citation_count: {}".format(extract_citation_count))
-    print("extract_first_last_author: {}".format(extract_first_last_author))
-    print("extract_author_count: {}".format(extract_author_count))
-    print("extract_journal: {}".format(extract_journal))
-
-    print("create_separate_csv: {}".format(create_separate_csv))
-    print("output_citation_data_full: {}".format(output_citation_data_full))
+    print("csv_path: {}".format(data["csv_path"]))
+    print("elsevier_apikey: {}".format(data["elsevier_apikey"]))
+    print("colname_title: {}".format(data["colname_title"]))
+    print("colname_DOI: {}".format(data["colname_DOI"]))
+    print("metadata_in_separate_csv: {}".format(data["metadata_in_separate_csv"]))
     print("")
 
     return data
 
 def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[pd.Series, pd.Series, pd.DataFrame]:
     '''
-    Returns the columns containing paper titles and DOIs as pd.Series objects
+    Returns the columns containing paper titles and DOIs as pd.Series objects. Returns full user csv as a pd.DataFrame object.
 
     INPUTS: csv_path path to the csv, colname_title column name of column with titles, colname_DOI column name of column with DOIs
-    OUTPUTS: DOIs pd.Series containing all DOIs, Titles pd.Series containin all titles.
+    OUTPUTS: DOIs pd.Series containing all DOIs, Titles pd.Series containing all titles, full_dataframe pd.DataFrame the full user csv of journal data
     '''
     # Extract pd.Series object of the Titles and DOIs of all papers in the user provided csv
     try:
-        with open(csv_path) as csv_data:
-            encode = 'unicode_escape'
-            all_user_data = pd.read_csv(csv_path, encoding=encode)
-            all_user_data.fillna(0, inplace=True)
+        csv_file = Path(csv_path)
 
-            # Check if the first column contains the UTF-8BOM character
-            if all_user_data.columns[0] == 'ï»¿':
-                # If it does, reload the CSV with the correct encoding
-                encode = 'utf-8'
-                print("Found a file with UTF-8 encoding. Reloading CSV with this encoding.")
-                all_user_data = pd.read_csv(csv_path, encoding=encode)
-                all_user_data.fillna(0, inplace=True)
+        # Try with default encoding first
+        encode = "unicode_escape"
+        full_dataframe = pd.read_csv(csv_file, encoding=encode)
+        full_dataframe.fillna(0, inplace=True)
 
-            # Check if the first row contains the column headers
-            if colname_DOI not in all_user_data.columns or colname_title not in all_user_data.columns:
-                # It doesn't, so check the second row. If they are not in the second row the program will error.
-                print("Headers were not found in the first row, checking if second row contains headers.")
-                all_user_data = pd.read_csv(csv_path, encoding=encode, skiprows=1)
-                all_user_data.fillna(0, inplace=True)
+        # Handle UTF-8 BOM in first column
+        if full_dataframe.columns[0] == "ï»¿":
+            encode = "utf-8"
+            print("Found a file with UTF-8 BOM. Reloading CSV with UTF-8 encoding.")
+            full_dataframe = pd.read_csv(csv_file, encoding=encode)
+            full_dataframe.fillna(0, inplace=True)
+
+        # Handle case where headers are not in first row
+        if colname_DOI not in full_dataframe.columns or colname_title not in full_dataframe.columns:
+            print("Headers not found in first row, retrying with skiprows=1.")
+            full_dataframe = pd.read_csv(csv_file, encoding=encode, skiprows=1)
+            full_dataframe.fillna(0, inplace=True)
             
-            DOIs = all_user_data[colname_DOI]
-            Titles = all_user_data[colname_title]
+        DOIs = full_dataframe[colname_DOI]
+        Titles = full_dataframe[colname_title]
     except Exception as e:
         print("ERROR: Something went wrong when interacting with your csv. Either the path is incorrect, one of the column name titles you entered was incorrect, or a combination of the above. Here's more information:\n")
         raise
@@ -132,7 +102,7 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[pd.Ser
     # Communcate to user successful extraction
     print("** Successfully read Title and DOI information from your provided CSV **\n")
 
-    return DOIs, Titles, all_user_data
+    return DOIs, Titles, full_dataframe
 
 def instantiate_elsapy_client(elsevier_apikey: str) -> ElsClient:
     '''
@@ -281,7 +251,7 @@ def reformat_author_names(first: str, last: str) -> str:
     names = a1[1] + ', ' + a1[0] + '; ' + al[1] + ', ' + al[0]
     return names
 
-def get_semanticscholar_data(doi_series: pd.Series, title_series: pd.Series, data_dict: dict, output_citation_data_full: bool, warning_rows: list) -> dict:
+def get_semanticscholar_data(doi_series: pd.Series, title_series: pd.Series, data_dict: dict, warning_rows: list) -> dict:
     '''
     Extracts citation count, journal and author information for all required papers using the Semantic Scholar API, adding them to data_dict.
 
@@ -420,41 +390,5 @@ def output_csv(data_dict: dict, all_user_data: pd.DataFrame, create_separate_csv
     print('')
 
     print("** 'citation_counter_output.csv' has been successfully output! **\n")
-
-    return None
-
-def output_png(data_dict: dict) -> None:
-    '''
-    Outputs a scatterplot of the elsevier citation counts compared to the semantic scholar citation counts with some summary statistics.
-
-    INPUTS: data_dict, dictionary of all citation data
-    OUTPUTS: None. Outputs 'citation_counter_visual_summary.png' to the current folder
-    '''
-    #Create a numpy array for the elsevier citation counts and one for semantic scholar citation counts for all rows with both a elsevier and semantic scholar citation count exists
-    citation_data = pd.DataFrame(data_dict).T
-    citation_data = citation_data.dropna()
-    el_cits = citation_data['elsevier_citation_count'].to_numpy()
-    ss_cits = citation_data['semanticscholar_citation_count'].to_numpy()
-
-    # Couple of calculations
-    diff = el_cits - ss_cits
-    mean = round(np.mean(diff), 1)
-    sd = round(np.std(diff), 1)
-    q1 = np.percentile(diff, 25)
-    q3 = np.percentile(diff, 75)
-    iqr = q3 - q1
-    
-    #plotting
-    plt.plot(ss_cits, el_cits, 'bo', alpha = 0.5)
-    plt.xlabel('Semantic scholar citation counts')
-    plt.ylabel('Elsevier citation counts')
-    plt.title("Elsevier citation counts plotted against Semantic Scholar citation counts")
-    plt.figtext(0.89, 0.13, 'Mean difference (Els. - S.S.): {}\nSTDEV difference: {}\nIQR: {}'.format(mean, sd, iqr), ha="right", fontsize=10)
-    plt.plot(ss_cits, ss_cits, 'r-', label = 'Els. = S.S line')
-    plt.legend()
-    plt.savefig('citation_counter_visual_summary.png') 
-
-    #Communicate successful plot creation
-    print("** 'citation_counter_visual_summary.png' successfully output! **\n")
 
     return None
