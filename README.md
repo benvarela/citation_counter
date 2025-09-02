@@ -6,17 +6,12 @@ A csv file containing the set of journal papers to extract from, with each paper
 
 ## User setup
 ### Installations and virtual environment creation
-If you have not yet, download the [Anaconda Distribution](https://www.anaconda.com/download) In the terminal, execute the following command
+If you have not yet, download the [Anaconda Distribution](https://www.anaconda.com/download). Then, in the terminal, execute the following commands. They create a virtual environment with all the dependencies of citation_counter.py and authors_gender.R, and then activate this virtual environment. In sum, makes all the dependencies of citation_counter.py and authors_gender.R available to the current working directory.
+
  ```
  conda env create -f environment.yml
+ conda activate citation_env
  ``` 
-This creates a virtual environment with all the dependencies of citation_counter.py and authors_gender.R.
-
-Then, activate the virtual environment by executing the command
-```
-conda actiavte citation_env
-``` 
-This makes all the dependencies of citation_counter.py and authors_gender.R available to the current working directory.
 
 Check that the R package 'parallel' is installed by executing in **an R terminal** 
 ```
