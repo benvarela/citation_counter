@@ -60,15 +60,15 @@ Where the title or DOI for a paper is not provided, data may no longer be able t
 | Semantic Scholar | DOI |
 | OpenAlex | |
 
-## Why was some metadata not extracted if I specified both the Title and DOI?
-### Elsevier
+### Why was some metadata not extracted if I specified both the Title and DOI?
+#### Elsevier
 * Not all journal articles are available in the Elsevier API
 * Titles with special characters can result in faulty searches of the Elsevier API database, even though the paper may be available 
 * The Elsevier API can return imcomplete data in journal articles that are available
 
-### Semantic Scholar
+#### Semantic Scholar
 * Not all journal articles are available in the Semantic Scholarr API
 * Some journal articles may exist in Semantic Scholar, but very rare errors may still be thrown preventing a very small subset of papers inaccessible through the API
 * Some papers do not have any authors listed. [Example](https://www.semanticscholar.org/paper/EEG-Signal-Research-for-Identification-of-Epilepsy/140ee25d5ca5dbdf65dafc57f422f00366137bc8) (as of 03/09/25).
 
-### OpenAlex
+#### OpenAlex
