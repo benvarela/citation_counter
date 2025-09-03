@@ -2,18 +2,19 @@
 ## Function
 The citation_counter module outputs a set of metadata from a set of journal articles provided by the user by interfacing with the [Elsevier](https://dev.elsevier.com), [Semantic Scholar](https://www.semanticscholar.org/product/api) and [Open Alex](https://docs.openalex.org/how-to-use-the-api/api-overview) APIs.
 
-A csv file containing the set of journal papers to extract from, with each paper's title and DOI, is required.
+## CSV file requirement (file input)
+A csv file with the title and DOI of each journal article to extract metadata for is required.
 
 ## User setup
 ### Installations and virtual environment creation
-If you have not yet, download the [Anaconda Distribution](https://www.anaconda.com/download). Then, in the terminal, execute the following commands. They create a virtual environment with all the dependencies of citation_counter.py and authors_gender.R, and then activate this virtual environment. In sum, makes all the dependencies of citation_counter.py and authors_gender.R available to the current working directory.
-
+If you have not yet, download the [Anaconda Distribution](https://www.anaconda.com/download). Then, in the terminal, execute the following commands. 
  ```
  conda env create -f environment.yml
  conda activate citation_env
  ``` 
+They create a virtual environment with all the dependencies of citation_counter.py and authors_gender.R, and then activate this virtual environment. In sum, makes all the dependencies of citation_counter.py and authors_gender.R available to the current working directory.
 
-Check that the R package 'parallel' is installed by executing in **an R terminal** 
+Then, check that the R package 'parallel' is installed by executing the following command in **an R terminal** and reading through the list of installed packages
 ```
 installed.packages()
 ``` 
@@ -27,19 +28,46 @@ The user must input the following parameters, by editing the file 'config.json'
 
 | Parameter | Explanation | Optional (Yes/No) |
 | --------- | ----------- | ----------------- |
-| csv_path  | relative to the working directory of the citation_counter.py file, the path to your csv containing the DOI and title of all journal articles. See [here](https://www.codecademy.com/resources/docs/general/file-paths) if unsure how to write a file path. | No |
-| elsevier_apikey   | an API key for the Elsevier API. Obtain a new API key [here](https://dev.elsevier.com) | No |
-| gender-api.com_apikey | an API key for gender-api.com. Obtain a new API key [here](gender-api.com). | Yes* (see: Notes) |
-| colname_title | The exact column name that contains all the titles of your journal articles | No |
-| colname_DOI | The exact column name that contains all of the DOIs of your journal articles | No |
-| metadata_in_separate_csv | Whether the user wants metadata extracted to be output to a new csv (change value to "True"), or metadata columns to be appended to the csv file containing the information about each journal article (leave value as ""). | Yes |
+| ```csv_path```  | The relative path to your csv containing the DOI and title of all journal articles. See [here](https://www.codecademy.com/resources/docs/general/file-paths) if unsure how to write a file path. | No |
+| ```elsevier_apikey```   | an API key for the Elsevier API. Obtain a new API key [here](https://dev.elsevier.com). | No |
+| ```gender-api.com_apikey``` | an API key for gender-api.com. Obtain a new API key [here](gender-api.com). | Yes* (see: Notes) |
+| ```colname_title``` | The exact column name that contains all the titles of your journal articles. | No |
+| ```colname_DOI``` | The exact column name that contains all of the DOIs of your journal articles. | No |
+| ```retain_all_columns``` | Output csv called 'citation_counter_output.csv' will contain extracted metadata columns in addition to the columns in the input csv if value is set to "True". Otherwise, only extracted metadata will be in the output csv and the value of this parameter may be left as "". | Yes |
 
 ### Notes
 * No API key is required for semantic scholar.
-* gender_apikey only needs to be specified if you wish to extract first and last author genders by running authors_gender.R.
+* ```gender_apikey``` only needs to be specified if you wish to extract first and last author genders by running authors_gender.R.
 * gender-api.com provides users with 100 free requests per month. Larger extractions will have to pay for additional credit.
+
+## Running the program
+In the terminal, execute the following command. Note that you must have previously activated the citation_env environment. Instructions for this are detailed under User setup / Intallations and virtual environment creation.
+```
+python citation_counter.py
+```
+Updates will be printed to the terminal as the program runs. The results will be output in a csv called 'citation_counter_output.csv'.
 
 ## Data extracted
 The following table tabulates the set metadata output against the APIs used. Entries in the table are the column names used in the output csvs that contain the corresponding metadata from the corresponding API.
 
 *OpenAlex integration remains...*
+
+### Handling of missing Title or DOI information for a paper
+Where the title or DOI for a paper is not provided, data may no longer be able to be extracted from APIs. The below table specifies what information must be provided  for each API to be used to extract metadata. This criteria is independently assessed for each journal article. 
+| API | Required information for use |
+| Elsevier | Title, DOI | 
+| Semantic Scholar | DOI |
+| OpenAlex | |
+
+## Why was some metadata not extracted if I specified both the Title and DOI?
+### Elsevier
+* Not all journal articles are available in the Elsevier API
+* Titles with special characters can result in faulty searches of the Elsevier API database, even though the paper may be available 
+* The Elsevier API can return imcomplete data in journal articles that are available
+
+### Semantic Scholar
+* Not all journal articles are available in the Semantic Scholarr API
+* Some journal articles may exist in Semantic Scholar, but very rare errors may still be thrown preventing a very small subset of papers inaccessible through the API
+* Some papers do not have any authors listed. [Example](https://www.semanticscholar.org/paper/EEG-Signal-Research-for-Identification-of-Epilepsy/140ee25d5ca5dbdf65dafc57f422f00366137bc8) (as of 03/09/25).
+
+### OpenAlex
