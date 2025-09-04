@@ -135,6 +135,35 @@ def reformatauthors_semanticscholar(authors: list) -> str:
     ## Join list of author names with semicolons and return
     return "; ".join(formatted)
 
+def getauthorpaper_semantischolar(sch, author_id: str, initial_limit: int = 1000, retries: int = 3):
+    """
+    Safely fetch author papers from Semantic Scholar API with retries
+    and progressively smaller limits if the request times out.
+
+    Parameters
+    ----------
+    sch : SemanticScholar
+        An instance of the SemanticScholar client.
+    author_id : str
+        Semantic Scholar authorId to fetch papers for.
+    initial_limit : int, optional
+        Starting number of papers to request (default 1000).
+    retries : int, optional
+        Number of retry attempts before giving up (default 3).
+
+    Returns
+    -------
+    list or None
+        List of author papers if successful, or None if request fails.
+    """
+    limit = initial_limit
+    for attempt in range(retries):
+        try:
+            return sch.get_author_papers(author_id, limit=limit)
+        except Exception as e:
+            limit = max(100, limit // 2)
+    return None
+
 def reformatauthor_openalex(author: str) -> str:
     """
     Clean and reformat an author name into "Last,First" format.
@@ -431,7 +460,7 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
         #Some papers, erroneously, may not have a listed author in Semantic Scholar, eg: https://www.semanticscholar.org/paper/EEG-Signal-Research-for-Identification-of-Epilepsy/140ee25d5ca5dbdf65dafc57f422f00366137bc8
         #If there are authors:
         if authors:
-            author1_papers = sch.get_author_papers(authors[0]['authorId'], limit = 1000)
+            author1_papers = getauthorpaper_semantischolar(sch, authors[0]['authorId'])
             for author1_paper in author1_papers.raw_data:
                 if 'DOI' in author1_paper['externalIds'].keys():                                # A couple things to note here. Because sometimes the titles extracted have strange characters, I'm only checking to see if the DOI.lower() matches. .lower() is needed because sometimes pre-prints have a letter of lower case and they get chosen instead of the peer-reviewed published paper, which has the citations.
                     if author1_paper['externalIds']['DOI'].lower() == doi.lower():
@@ -468,121 +497,88 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
 
 def get_openalex_data(data_dict: dict) -> dict:
     """
-    Retrieve metadata and citation information for a set of papers from the OpenAlex API.
-
-    For each paper in `data_dict`, this function queries OpenAlex using the DOI (if present)
-    and updates the dictionary with information including authors, institutions, citation counts,
-    journal, open access status, and other bibliometric indicators.
+    Extracts citation, authorship, and publication metadata for each paper in
+    the dataset using the OpenAlex API.
 
     Parameters
     ----------
     data_dict : dict
-        Dictionary of papers, where each key is an integer index and each value is a dictionary
-        containing at least a "DOI" key. Other keys may exist for previously collected metadata.
+        Dictionary of paper metadata. Must include at least 'DOI' for each paper.
 
     Returns
     -------
     dict
-        The updated dictionary with additional OpenAlex metadata. The following keys may be added
-        or updated for each paper:
-
-        - authors_openalex : str
-            Semicolon-separated list of authors in "Last,First" format.
-        - authorcount_openalex : int
-            Number of authors.
-        - institutions_openalex : str
-            Semicolon-separated list of institutions in "Name,Type,CountryCode" format.
-        - authorcountries_openalex : str
-            Comma-separated list of unique author countries.
-        - citationcount_openalex : int
-            Number of citations according to OpenAlex.
-        - workscitedcount_openalex : int
-            Number of references cited by the paper.
-        - FWCI_openalex : float
-            Field-Weighted Citation Impact.
-        - citationnormalisedpercentile_openalex : float
-            Citation percentile normalized by field.
-        - journal_openalex : str
-            Name of the journal in which the paper was published.
-        - openaccess_openalex : bool
-            Whether the paper is open access.
-        - retracted_openalex : bool
-            Whether the paper has been retracted.
-        - language_openalex : str
-            Language code of the paper.
-        - grantinstitutions_openalex : str
-            Comma-separated list of funding institutions.
-
-    Notes
-    -----
-    - If a DOI is missing or the API query fails, authors are set to "X.,X." and other fields remain None.
-    - The function prints progress messages every 10% of papers processed using `print_progress`.
-    - Author names are reformatted using `reformatauthor_openalex`.
-    - Sets are used to store unique institutions and countries before converting to strings.
+        Updated dictionary containing additional OpenAlex-derived metadata.
     """
-    #Initialisation of variables for the progress statements to be printed to terminal, using print_progress()
+    # Initialisation of variables for progress updates
     total = len(data_dict)
     proportion = 0.1
 
-    #Message that the elsevier extraction is beginning
     print("** Extraction of data with OpenAlex API is now beginning **")
-    print("A message will be printed below every time a 10% portion of the total papers to analyse is completed.")
+    print("A message will be printed below every time a 10% portion of the "
+          "total papers to analyse is completed.")
 
     # Iterate over all papers
     for i in range(len(data_dict)):
-        ## Skip paper if no DOI stored
         DOI = data_dict[i]["DOI"]
-        if data_dict[i]["DOI"] == "":
+
+        # Skip paper if no DOI stored
+        if DOI == "":
             proportion = print_progress(i, proportion, total, 'OpenAlex')
             continue
 
-        ## Attempt to find in OpenAlex API, and where not 
+        # Attempt to query OpenAlex by DOI
         try:
             DOI_link = 'https://doi.org/' + DOI
             w = pa.Works()[DOI_link]
-        except:
+        except Exception:
             data_dict[i]['authors_openalex'] = "X.,X."
         else:
             ## Author associated data
-            authors = list()
+            authors = []
             countries = set()
             institutions = set()
-            for authorship in w['authorships']:
-                # For each author, add name to list
-                name = reformatauthor_openalex(authorship['author']['display_name'])
+
+            for authorship in w.get('authorships', []):
+                # Author name
+                name = reformatauthor_openalex(
+                    (authorship.get('author') or {}).get('display_name') or "X.,X."
+                )
                 authors.append(name)
-                # For each author, add unique countries to set
-                for country in authorship.get('countries', []):
+
+                # Countries
+                for country in authorship.get('countries', []) or []:
                     countries.add(country)
-                # For each author, add unique institutions to set
-                for institution in authorship.get('institutions', []):
-                    ins = f"{institution['display_name']},{institution['type']},{institution['country_code']}"
+
+                # Institutions
+                for institution in authorship.get('institutions', []) or []:
+                    ins = f"{institution.get('display_name')},{institution.get('type')},{institution.get('country_code')}"
                     institutions.add(ins)
-            # Add unique coutries, institutions to dictionary as strings
-            data_dict[i]["authorcountries_openalex"] = ", ".join(list(countries))
-            data_dict[i]["institutions_openalex"] = "; ".join(list(institutions))
-            # Calculate number of authors by counting list entries
-            data_dict[i]["authorcount_openalex"] = len(authors)
-            # String of all authors by joining list entries
-            authors = "; ".join(authors)
-            data_dict[i]["authors_openalex"] = authors
+
+            data_dict[i]["authorcountries_openalex"] = ", ".join(list(countries)) if countries else None
+            data_dict[i]["institutions_openalex"] = "; ".join(list(institutions)) if institutions else None
+            data_dict[i]["authorcount_openalex"] = len(authors) if authors else None
+            data_dict[i]["authors_openalex"] = "; ".join(authors) if authors else None
 
             ## Citing information
             data_dict[i]["citationcount_openalex"] = w.get('cited_by_count')
-            data_dict[i]["workscitedcount_openalex"] = len(w.get('referenced_works', []))
+            data_dict[i]["workscitedcount_openalex"] = len(w.get('referenced_works') or [])
             data_dict[i]["FWCI_openalex"] = w.get('fwci')
             data_dict[i]["citationnormalisedpercentile_openalex"] = w.get('citation_normalised_percentile')
 
             ## Publishing information
-            data_dict[i]["journal_openalex"] = (w.get('primary_location', {})
-                                                .get('source', {})
-                                                .get('display_name')
-                                                )
-            data_dict[i]["openaccess_openalex"] = w.get('open_access', {}).get('is_oa')
+            primary_location = w.get('primary_location') or {}
+            source = primary_location.get('source') or {}
+            data_dict[i]["journal_openalex"] = source.get('display_name')
+
+            openaccess = w.get('open_access') or {}
+            data_dict[i]["openaccess_openalex"] = openaccess.get('is_oa')
+
             data_dict[i]["retracted_openalex"] = w.get('is_retracted')
             data_dict[i]["language_openalex"] = w.get("language")
-            grants = [grant['funder_display_name'] for grant in w.get('grants', [])]
-            data_dict[i]["grantinstitutions_openalex"] = ", ".join(grants)
+
+            grants = [grant.get('funder_display_name') for grant in w.get('grants', []) or [] if grant.get('funder_display_name')]
+            data_dict[i]["grantinstitutions_openalex"] = ", ".join(grants) if grants else None
 
         proportion = print_progress(i, proportion, total, 'OpenAlex')
 
