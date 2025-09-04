@@ -468,6 +468,57 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
 
 def get_openalex_data(data_dict: dict) -> dict:
     """
+    Retrieve metadata and citation information for a set of papers from the OpenAlex API.
+
+    For each paper in `data_dict`, this function queries OpenAlex using the DOI (if present)
+    and updates the dictionary with information including authors, institutions, citation counts,
+    journal, open access status, and other bibliometric indicators.
+
+    Parameters
+    ----------
+    data_dict : dict
+        Dictionary of papers, where each key is an integer index and each value is a dictionary
+        containing at least a "DOI" key. Other keys may exist for previously collected metadata.
+
+    Returns
+    -------
+    dict
+        The updated dictionary with additional OpenAlex metadata. The following keys may be added
+        or updated for each paper:
+
+        - authors_openalex : str
+            Semicolon-separated list of authors in "Last,First" format.
+        - authorcount_openalex : int
+            Number of authors.
+        - institutions_openalex : str
+            Semicolon-separated list of institutions in "Name,Type,CountryCode" format.
+        - authorcountries_openalex : str
+            Comma-separated list of unique author countries.
+        - citationcount_openalex : int
+            Number of citations according to OpenAlex.
+        - workscitedcount_openalex : int
+            Number of references cited by the paper.
+        - FWCI_openalex : float
+            Field-Weighted Citation Impact.
+        - citationnormalisedpercentile_openalex : float
+            Citation percentile normalized by field.
+        - journal_openalex : str
+            Name of the journal in which the paper was published.
+        - openaccess_openalex : bool
+            Whether the paper is open access.
+        - retracted_openalex : bool
+            Whether the paper has been retracted.
+        - language_openalex : str
+            Language code of the paper.
+        - grantinstitutions_openalex : str
+            Comma-separated list of funding institutions.
+
+    Notes
+    -----
+    - If a DOI is missing or the API query fails, authors are set to "X.,X." and other fields remain None.
+    - The function prints progress messages every 10% of papers processed using `print_progress`.
+    - Author names are reformatted using `reformatauthor_openalex`.
+    - Sets are used to store unique institutions and countries before converting to strings.
     """
     #Initialisation of variables for the progress statements to be printed to terminal, using print_progress()
     total = len(data_dict)
