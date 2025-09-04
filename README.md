@@ -82,6 +82,9 @@ Where the title or DOI for a paper is not provided, data may no longer be able t
 | Semantic Scholar | DOI |
 | OpenAlex | DOI |
 
+### Handling of missing metadata
+Where metadata is missing, csv entries will be left blank, with the exception of Authors. Missing authors will be written as a string ```'X.,X.'```, as this format interfaces well with gender-api.com. Furthermore, where author first names are missing, they are replaced witih the string ```'X.'```.
+
 ### Why was some metadata not extracted if I specified both the Title and DOI?
 #### Elsevier
 * Not all journal articles are available in the Elsevier API
