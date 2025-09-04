@@ -16,3 +16,4 @@ dependencies:
   - pip:
       - semanticscholar>=0.9.0
       - elsapy>=0.5.1
+      - pyalex>=0.4.0

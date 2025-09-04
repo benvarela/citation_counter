@@ -48,9 +48,29 @@ python citation_counter.py
 Updates will be printed to the terminal as the program runs. The results will be output in a csv called 'citation_counter_output.csv'.
 
 ## Data extracted
-The following table tabulates the set metadata output against the APIs used. Entries in the table are the column names used in the output csvs that contain the corresponding metadata from the corresponding API.
+The following table tabulates the set metadata output against the APIs used. Entries in the table are the column names used in the output csvs that contain the corresponding metadata from the corresponding API. 
 
-*OpenAlex integration remains...*
+| Metadata | Elsevier | Semantic Scholar | OpenAlex |
+| ------- | -------- | ---------------- | -------- |
+| Citation count | ```citationcount_elsevier``` | ```citationcount_semanticscholar``` | ```citationcount_openalex``` |
+| Works cited count | N/A | N/A | ```workscitedcount_openalex``` |
+| FWCI | N/A | N/A | ```FWCI_openalex``` |
+| Citation normalised percentage | N/A | N/A | ```citationnormalisedpercentile_openalex``` |
+| Authors | N/A | ```authors_semanticscholar``` | ```authors_openalex``` |
+| Author count | N/A | ```authorcount_semanticscholar``` | ```authorcount_openalex``` |
+| Author countries | N/A | N/A | ```authorcountries_openalex``` |
+| Author institutions | N/A | N/A | ```institutions_openalex``` |
+| Publishing location | ```journal_elsevier``` | ```journal_semanticscholar``` | ```journal_openalex``` |
+| Published language | N/A | N/A | ```language_openalex``` |
+| Grant institutions | N/A | N/A | ```grantinstitutions_openalex``` |
+| Open access | N/A | N/A | ```openaccess_openalex``` |
+| Retracted | N/A | N/A | ```retracted_openalex``` |
+
+### Notes
+* Author institutions is returned as a string ```"Institution1,type1,country1; Institution2..."```. Note the country and type institution is extractable in addition to the name of the institution
+* Generally, all metadata fields that could hav mutiple entries are presented in comma separated strings: ```"Entry1, Entry2..."```.
+* For more information on how OpenAlex extracts data on papers, access their detailed [technical documentation](https://docs.openalex.org/api-entities/works/work-object#grants) on 'Work' objects, the data representation of an extracted paper.
+
 
 ### Handling of missing Title or DOI information for a paper
 Where the title or DOI for a paper is not provided, data may no longer be able to be extracted from APIs. The below table specifies what information must be provided  for each API to be used to extract metadata. This criteria is independently assessed for each journal article. 
@@ -58,7 +78,7 @@ Where the title or DOI for a paper is not provided, data may no longer be able t
 | --- | ---------------------------- |
 | Elsevier | Title, DOI | 
 | Semantic Scholar | DOI |
-| OpenAlex | |
+| OpenAlex | DOI |
 
 ### Why was some metadata not extracted if I specified both the Title and DOI?
 #### Elsevier
@@ -67,8 +87,10 @@ Where the title or DOI for a paper is not provided, data may no longer be able t
 * The Elsevier API can return imcomplete data in journal articles that are available
 
 #### Semantic Scholar
-* Not all journal articles are available in the Semantic Scholarr API
+* Not all journal articles are available in the Semantic Scholar API
 * Some journal articles may exist in Semantic Scholar, but very rare errors may still be thrown preventing a very small subset of papers inaccessible through the API
 * Some papers do not have any authors listed. [Example](https://www.semanticscholar.org/paper/EEG-Signal-Research-for-Identification-of-Epilepsy/140ee25d5ca5dbdf65dafc57f422f00366137bc8) (as of 03/09/25).
 
 #### OpenAlex
+* Not all journal articles are available in the OpenAlex API
+* Not all metadata field may be populated for every paper. For more information, review the [technical documentation](https://docs.openalex.org/api-entities/works/work-object#grants)

@@ -19,7 +19,7 @@ nicknames=tolower(nicknames)
 # Read in dataset of likely genders for nicknames
 nickname.gends=read.csv("name_csvs/nickname.gends.csv",header=T,stringsAsFactors=F)[,-1]
 
-# Separate out author names and find entries with initials
+# Separate out author names and find entries with initials. The expected format is "LastName,Firstname; LastName..." (I think, need to confirm this)
 all_auth_names=lapply(as.list(article.data$AF),strsplit,split="; ")
 unique_names=unique(unlist(all_auth_names))
 allfirsts=unlist(lapply(1:length(unique_names),get.all.given,

@@ -8,9 +8,164 @@ import pandas as pd
 from pathlib import Path
 from elsapy.elsclient import ElsClient
 from elsapy.elssearch import ElsSearch
-from elsapy.elsdoc import FullDoc
 from semanticscholar import SemanticScholar
-import numpy as np
+import pyalex as pa
+
+## Functions used within main functions, called in citation_counter.py
+
+def print_progress(i: int, proportion: float, total: int, database: str) -> float:
+    """
+    Print progress updates during data extraction.
+
+    Parameters
+    ----------
+    i : int
+        Index of the current paper.
+    proportion : float
+        Current completion proportion (increments in steps of 0.1).
+    total : int
+        Total number of papers.
+    database : str
+        Name of the database being queried (e.g., "Elsevier" or "Semantic Scholar").
+
+    Returns
+    -------
+    float
+        Updated proportion value.
+    """
+    if round((i+1)/total, 8) >= round(proportion, 8):
+        if round(proportion, 8) == 1:
+            end_char = '!\n'
+        else:
+            end_char = '...'
+        print("Completed {}% with {}{}".format(round(proportion*100, 3), database, end_char))
+        proportion += 0.1
+    
+    return proportion
+
+def instantiateclient_elsevier(elsevier_apikey: str) -> ElsClient:
+    """
+    Instantiate an `ElsClient` object for the Elsevier API.
+
+    Parameters
+    ----------
+    elsevier_apikey : str
+        User's Elsevier API key.
+
+    Returns
+    -------
+    ElsClient
+        Client object for interacting with the Elsevier API.
+
+    Raises
+    ------
+    Exception
+        If a connection cannot be established using the provided API key.
+    """
+    #Instantiate the client object and test it
+    client = ElsClient(elsevier_apikey)
+    try:
+        doc_srch = ElsSearch("TITLE({})".format("Tensor-based Uncorrelated Multilinear Discriminant Analysis for Epileptic Seizure Prediction"), 'scopus')
+        doc_srch.execute(client)
+    except Exception as e:
+        print("ERROR: There was a problem setting up a connection with your API key. Please check it's correct. More information:\n")
+        raise
+    
+    #Communicate success to the user
+    print("** Connection established succesfully using the provided elsevier API key **\n")
+
+    return client    
+
+def cleantitle_elsevier(string, chars_to_remove):
+    """
+    Remove specified characters from a string.
+
+    Parentheses are removed before querying Elsevier API, can cause bad requests
+
+    Parameters
+    ----------
+    string : str
+        The input string (e.g., paper title) to clean.
+    chars_to_remove : str
+        String containing all characters to remove from `string`.
+
+    Returns
+    -------
+    str
+        The cleaned string with all specified characters removed.
+    """
+    return ''.join(char for char in string if char not in chars_to_remove)
+
+def reformatauthors_semanticscholar(authors: list) -> str:
+    """
+    Reformat author names into "[Last],[First];[Last],[First]..." string.
+
+    Parameters
+    ----------
+    authors : list of str
+        Each string is an author's name in format "[First] [Last]".
+
+    Returns
+    -------
+    str
+        Semicolon-delimited string of names in format "[Last],[First];...".
+
+    Notes
+    -----
+    If a name is missing or malformed, placeholder "X." is used for the first name or last name as appropriate.
+    """
+    ## Instantiate and fill out a list of author first and last names
+    formatted = []
+    for author in authors:
+        # Check whether author name existed, replace with 'X.' if it didn't to interface well with gender-api.com assessment of names
+        names = author.split()
+        try: 
+            first = names[0] 
+        except IndexError: 
+            first = 'X.' 
+        try: 
+            last = names[-1]
+            # If only one name was listed, then this was the last name. The first name needs to be re-written as X.
+            if last == first:
+                first = 'X.'
+        except IndexError: 
+            last = 'X.'
+        formatted.append(f"{last},{first}")
+    
+    ## Join list of author names with semicolons and return
+    return "; ".join(formatted)
+
+def reformatauthor_openalex(author: str) -> str:
+    """
+    Clean and reformat an author name into "Last,First" format.
+
+    Parameters
+    ----------
+    author : str
+        Author name as returned by OpenAlex (e.g., "First Last",
+        "First Middle Last", or sometimes just a single token).
+
+    Returns
+    -------
+    str
+        Reformatted author name in "Last,First" format.
+        - Middle names are ignored.
+        - If only one token is provided, it is treated as the last name
+          and the first name is replaced with "X.".
+        - If the input is empty, returns "X.,X.".
+    """
+    tokens = author.split()
+
+    if not tokens:  # completely empty string
+        return "X.,X."
+
+    if len(tokens) == 1:
+        return f"{tokens[0]},X."
+
+    first, last = tokens[0], tokens[-1]
+    return f"{last},{first}"
+
+## Main functions
 
 def readjson() -> dict:
     """
@@ -148,76 +303,26 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, 
                         "Title": Titles[i],
                         "citationcount_elsevier": None, 
                         "citationcount_semanticscholar": None, 
-                        "authors_semanticscholar": None,
+                        "citationcount_openalex": None,
+                        "authors_semanticscholar": None,                # Authors are listed in string format 'LastName,Firstname; LastName...'
+                        "authors_openalex": None,                       # ^
                         "authorcount_semanticscholar": None,
+                        "authorcount_openalex": None,
                         "journal_elsevier": None,
-                        "journal_semanticscholar": None
+                        "journal_semanticscholar": None,
+                        "journal_openalex": None,
+                        "institutions_openalex": None,                  # All unique institutions listed in string format 'Institution1,type1,country1; Institution2...'
+                        "authorcountries_openalex": None,               # All unique countries listed in string format 'Country1, Country2...'
+                        "openaccess_openalex": None,
+                        "FWCI_openalex": None,
+                        "citationnormalisedpercentile_openalex": None,
+                        "workscitedcount_openalex": None,
+                        "grantinstitutions_openalex": None,             # Listed in string format 'Institution1, Institution2...'
+                        "retracted_openalex": None,
+                        "language_openalex": None
                        }
         
     return data_dict, full_dataframe
-
-def instantiate_elsapy_client(elsevier_apikey: str) -> ElsClient:
-    """
-    Instantiate an `ElsClient` object for the Elsevier API.
-
-    Parameters
-    ----------
-    elsevier_apikey : str
-        User's Elsevier API key.
-
-    Returns
-    -------
-    ElsClient
-        Client object for interacting with the Elsevier API.
-
-    Raises
-    ------
-    Exception
-        If a connection cannot be established using the provided API key.
-    """
-    #Instantiate the client object and test it
-    client = ElsClient(elsevier_apikey)
-    try:
-        doc_srch = ElsSearch("TITLE({})".format("Tensor-based Uncorrelated Multilinear Discriminant Analysis for Epileptic Seizure Prediction"), 'scopus')
-        doc_srch.execute(client)
-    except Exception as e:
-        print("ERROR: There was a problem setting up a connection with your API key. Please check it's correct. More information:\n")
-        raise
-    
-    #Communicate success to the user
-    print("** Connection established succesfully using the provided elsevier API key **\n")
-
-    return client    
-
-def print_progress(i: int, proportion: float, total: int, database: str) -> float:
-    """
-    Print progress updates during data extraction.
-
-    Parameters
-    ----------
-    i : int
-        Index of the current paper.
-    proportion : float
-        Current completion proportion (increments in steps of 0.1).
-    total : int
-        Total number of papers.
-    database : str
-        Name of the database being queried (e.g., "Elsevier" or "Semantic Scholar").
-
-    Returns
-    -------
-    float
-        Updated proportion value.
-    """
-    if round((i+1)/total, 8) >= round(proportion, 8):
-            if round(proportion, 8) == 1:
-                end_char = '!\n'
-            else:
-                end_char = '...'
-            print("Completed {}% with {}{}".format(round(proportion*100, 3), database, end_char))
-            proportion += 0.1
-    
-    return proportion
 
 def get_elsevier_data(elsevier_apikey: str, data_dict: dict) -> dict:
     """
@@ -236,7 +341,7 @@ def get_elsevier_data(elsevier_apikey: str, data_dict: dict) -> dict:
         Updated dictionary with citation counts and journal data added.
     """
     #Instantiate the elsevier client
-    els_client = instantiate_elsapy_client(elsevier_apikey)
+    els_client = instantiateclient_elsevier(elsevier_apikey)
 
     #Initialisation of variables for the progress statements to be printed to terminal, using print_progress()
     total = len(data_dict)
@@ -251,13 +356,11 @@ def get_elsevier_data(elsevier_apikey: str, data_dict: dict) -> dict:
         doi = data_dict[i]["DOI"]
         title = data_dict[i]["Title"]
         if doi == "" or title == "":
+            proportion = print_progress(i, proportion, total, 'Elsevier')
             continue
         
         ## Using the title and DOI informatino to extract citation count and journal
-        #Having brackets in the title causes a syntax error to be thrown sometimes. They are removed
-        def remove_chars(string, chars_to_remove):
-            return ''.join(char for char in string if char not in chars_to_remove)
-        title = remove_chars(title, '()')
+        title = cleantitle_elsevier(title, '()')
 
         #Search for a paper with a title check by ensuring the DOI matches. When errors arise, papers are skipped (due to special characters in the title). 
         search = ElsSearch("TITLE({})".format(title), 'scopus')
@@ -267,58 +370,19 @@ def get_elsevier_data(elsevier_apikey: str, data_dict: dict) -> dict:
             proportion = print_progress(i, proportion, total, 'Elsevier')
             continue
 
-        #Use the ElsSearch and FullDoc to extract citation count and journal. Author information can't be found reliably, due to how poor AbsDoc and Fulldoc perform.
+        #Use ElsSearch to extract citation count and journal. Author information can't be found reliably, due to how poor AbsDoc and Fulldoc perform.
         for result in search.results:
             if 'prism:doi' in result.keys():
                 if result['prism:doi'] == doi:
                     #Get citation count
-                    data_dict[i]['citationcount_elsevier'] = int(result['citedby-count'])
+                    data_dict[i]['citationcount_elsevier'] = int(result.get('citedby-count')) if result.get('citedby-count') else None
                     #Get journal
                     if 'prism:publicationName' in result.keys():
-                        data_dict[i]['journal_elsevier'] = result['prism:publicationName']
+                        data_dict[i]['journal_elsevier'] = result.get('prism:publicationName')
 
         proportion = print_progress(i, proportion, total, 'Elsevier')
 
     return data_dict
-
-def reformat_author_names(authors: list) -> str:
-    """
-    Reformat author names into "[Last],[First];[Last],[First]..." string.
-
-    Parameters
-    ----------
-    authors : list of str
-        Each string is an author's name in format "[First] [Last]".
-
-    Returns
-    -------
-    str
-        Semicolon-delimited string of names in format "[Last],[First];...".
-
-    Notes
-    -----
-    If a name is missing or malformed, placeholder "X." is used for the first name or last name as appropriate.
-    """
-    ## Instantiate and fill out a list of author first and last names
-    formatted = []
-    for author in authors:
-        # Check whether author name existed, replace with 'X.' if it didn't to interface well with gender-api.com assessment of names
-        names = author.split()
-        try: 
-            first = names[0] 
-        except IndexError: 
-            first = 'X.' 
-        try: 
-            last = names[-1]
-            # If only one name was listed, then this was the last name. The first name needs to be re-written as X.
-            if last == first:
-                first = 'X.'
-        except IndexError: 
-            last = 'X.'
-        formatted.append(f"{last},{first}")
-    
-    ## Join list of author names with semicolons and return
-    return ";".join(formatted)
 
 def get_semanticscholar_data(data_dict: dict) -> dict:
     """
@@ -350,6 +414,7 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
         ## Check DOI, skip iteration if not present.
         doi = data_dict[i]['DOI']
         if doi == "":
+            proportion = print_progress(i, proportion, total, 'Semantic Scholar')
             continue
 
         ## Extraction of data
@@ -391,11 +456,84 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
             authors = [a['name'] for a in paper_result['authors']]
             num_authors = len(authors)
             data_dict[i]['authorcount_semanticscholar'] = num_authors
-            authors = reformat_author_names(authors)
+            authors = reformatauthors_semanticscholar(authors)
             data_dict[i]['authors_semanticscholar'] = authors
+        else:
+            data_dict[i]['authors_semanticscholar'] = 'X.,X.'
 
         #Progress statements to be printed to the terminal
         proportion = print_progress(i, proportion, total, 'Semantic Scholar')
+
+    return data_dict
+
+def get_openalex_data(data_dict: dict) -> dict:
+    """
+    """
+    #Initialisation of variables for the progress statements to be printed to terminal, using print_progress()
+    total = len(data_dict)
+    proportion = 0.1
+
+    #Message that the elsevier extraction is beginning
+    print("** Extraction of data with OpenAlex API is now beginning **")
+    print("A message will be printed below every time a 10% portion of the total papers to analyse is completed.")
+
+    # Iterate over all papers
+    for i in range(len(data_dict)):
+        ## Skip paper if no DOI stored
+        DOI = data_dict[i]["DOI"]
+        if data_dict[i]["DOI"] == "":
+            proportion = print_progress(i, proportion, total, 'OpenAlex')
+            continue
+
+        ## Attempt to find in OpenAlex API, and where not 
+        try:
+            DOI_link = 'https://doi.org/' + DOI
+            w = pa.Works()[DOI_link]
+        except:
+            data_dict[i]['authors_openalex'] = "X.,X."
+        else:
+            ## Author associated data
+            authors = list()
+            countries = set()
+            institutions = set()
+            for authorship in w['authorships']:
+                # For each author, add name to list
+                name = reformatauthor_openalex(authorship['author']['display_name'])
+                authors.append(name)
+                # For each author, add unique countries to set
+                for country in authorship.get('countries', []):
+                    countries.add(country)
+                # For each author, add unique institutions to set
+                for institution in authorship.get('institutions', []):
+                    ins = f"{institution['display_name']},{institution['type']},{institution['country_code']}"
+                    institutions.add(ins)
+            # Add unique coutries, institutions to dictionary as strings
+            data_dict[i]["authorcountries_openalex"] = ", ".join(list(countries))
+            data_dict[i]["institutions_openalex"] = "; ".join(list(institutions))
+            # Calculate number of authors by counting list entries
+            data_dict[i]["authorcount_openalex"] = len(authors)
+            # String of all authors by joining list entries
+            authors = "; ".join(authors)
+            data_dict[i]["authors_openalex"] = authors
+
+            ## Citing information
+            data_dict[i]["citationcount_openalex"] = w.get('cited_by_count')
+            data_dict[i]["workscitedcount_openalex"] = len(w.get('referenced_works', []))
+            data_dict[i]["FWCI_openalex"] = w.get('fwci')
+            data_dict[i]["citationnormalisedpercentile_openalex"] = w.get('citation_normalised_percentile')
+
+            ## Publishing information
+            data_dict[i]["journal_openalex"] = (w.get('primary_location', {})
+                                                .get('source', {})
+                                                .get('display_name')
+                                                )
+            data_dict[i]["openaccess_openalex"] = w.get('open_access', {}).get('is_oa')
+            data_dict[i]["retracted_openalex"] = w.get('is_retracted')
+            data_dict[i]["language_openalex"] = w.get("language")
+            grants = [grant['funder_display_name'] for grant in w.get('grants', [])]
+            data_dict[i]["grantinstitutions_openalex"] = ", ".join(grants)
+
+        proportion = print_progress(i, proportion, total, 'OpenAlex')
 
     return data_dict
 
@@ -430,12 +568,8 @@ def output_csv(data_dict: dict, all_user_data: pd.DataFrame, create_separate_csv
         data.to_csv("citation_counter_output.csv", header = True, index = False)
     else:
         #Otherwise, add citation data columns to user dataframe and output this
-        all_user_data['citationcount_elsevier'] = data['citationcount_elsevier']
-        all_user_data['citationcount_semanticscholar'] = data['citationcount_semanticscholar']
-        all_user_data['authors_semanticscholar'] = data['authors_semanticscholar']
-        all_user_data['authorcount_semanticscholar'] = data['authorcount_semanticscholar']
-        all_user_data['journal_elsevier'] = data['journal_elsevier']
-        all_user_data['journal_semanticscholar'] = data['journal_semanticscholar']
+        for col in data.columns:
+            all_user_data[col] = data[col]
         all_user_data.to_csv("citation_counter_output.csv", header = True, index = False)
 
     # Communicate to user successful output of the csv
