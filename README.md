@@ -72,6 +72,8 @@ The following table tabulates the set metadata output against the APIs used. Ent
 * For more information on how OpenAlex extracts data on papers, access their detailed [technical documentation](https://docs.openalex.org/api-entities/works/work-object#grants) on 'Work' objects, the data representation of an extracted paper.
 
 
+## Missing data
+
 ### Handling of missing Title or DOI information for a paper
 Where the title or DOI for a paper is not provided, data may no longer be able to be extracted from APIs. The below table specifies what information must be provided  for each API to be used to extract metadata. This criteria is independently assessed for each journal article. 
 | API | Required information for use |
