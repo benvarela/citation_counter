@@ -95,6 +95,7 @@ Where metadata is missing, csv entries will be left blank, with the exception of
 * Not all journal articles are available in the Semantic Scholar API
 * Some journal articles may exist in Semantic Scholar, but very rare errors may still be thrown preventing a very small subset of papers inaccessible through the API
 * Some papers do not have any authors listed. [Example](https://www.semanticscholar.org/paper/EEG-Signal-Research-for-Identification-of-Epilepsy/140ee25d5ca5dbdf65dafc57f422f00366137bc8) (as of 03/09/25).
+* Unfortunately, toward the later stages of development the performance of the Semantic Scholar API deteriorated significantly. Where a high proportion of papers could be extracted previously, Internal Server Errors are now being thrown, reducing metadata extraction efficiency from ~95% to ~10%. These changes were observed with identical code run at different times points throughout 2025, initially April-May, and later September.
 
 #### OpenAlex
 * Not all journal articles are available in the OpenAlex API

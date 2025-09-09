@@ -135,7 +135,7 @@ def reformatauthors_semanticscholar(authors: list) -> str:
     ## Join list of author names with semicolons and return
     return "; ".join(formatted)
 
-def getauthorpaper_semantischolar(sch, author_id: str, initial_limit: int = 1000, retries: int = 3):
+def getauthorpapers_semanticscholar(sch, author_id: str, initial_limit: int = 1000, retries: int = 3):
     """
     Safely fetch author papers from Semantic Scholar API with retries
     and progressively smaller limits if the request times out.
@@ -346,9 +346,7 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, 
                         "FWCI_openalex": None,
                         "citationnormalisedpercentile_openalex": None,
                         "workscitedcount_openalex": None,
-                        "grantinstitutions_openalex": None,             # Listed in string format 'Institution1, Institution2...'
                         "retracted_openalex": None,
-                        "language_openalex": None
                        }
         
     return data_dict, full_dataframe
@@ -450,7 +448,8 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
         #Extract paper result with semantic scholar, skip if an error is thrown when retrieving it
         try:
             paper_result = sch.get_paper(doi)
-        except:
+        except Exception as e:
+            raise
             proportion = print_progress(i, proportion, total, 'Semantic Scholar')
             continue
         
@@ -458,9 +457,9 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
         citation_count = None
         authors = paper_result['authors']
         #Some papers, erroneously, may not have a listed author in Semantic Scholar, eg: https://www.semanticscholar.org/paper/EEG-Signal-Research-for-Identification-of-Epilepsy/140ee25d5ca5dbdf65dafc57f422f00366137bc8
-        #If there are authors:
+        #If there are authors, check through author1 papers to manage paper duplication problems leading to erroneous citation counts:
         if authors:
-            author1_papers = getauthorpaper_semantischolar(sch, authors[0]['authorId'])
+            author1_papers = getauthorpapers_semanticscholar(sch, authors[0]['authorId'])
             for author1_paper in author1_papers.raw_data:
                 if 'DOI' in author1_paper['externalIds'].keys():                                # A couple things to note here. Because sometimes the titles extracted have strange characters, I'm only checking to see if the DOI.lower() matches. .lower() is needed because sometimes pre-prints have a letter of lower case and they get chosen instead of the peer-reviewed published paper, which has the citations.
                     if author1_paper['externalIds']['DOI'].lower() == doi.lower():
@@ -469,11 +468,10 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
                         else:
                             citation_count = author1_paper['citationCount']
         #If there aren't any authors, assume no paper duplication problems:
-        if citation_count == None:
+        else:
             citation_count = paper_result['citationCount']
         #Save the citation count
-        if citation_count != None:
-            data_dict[i]['citationcount_semanticscholar'] = citation_count
+        data_dict[i]['citationcount_semanticscholar'] = citation_count
     
         #Extract journal information
         if paper_result['venue']:
@@ -564,21 +562,16 @@ def get_openalex_data(data_dict: dict) -> dict:
             data_dict[i]["citationcount_openalex"] = w.get('cited_by_count')
             data_dict[i]["workscitedcount_openalex"] = len(w.get('referenced_works') or [])
             data_dict[i]["FWCI_openalex"] = w.get('fwci')
-            data_dict[i]["citationnormalisedpercentile_openalex"] = w.get('citation_normalised_percentile')
+            citation_normalised_percentile = w.get('citation_normalized_percentile') or {}
+            data_dict[i]["citationnormalisedpercentile_openalex"] = citation_normalised_percentile.get('value')
 
             ## Publishing information
             primary_location = w.get('primary_location') or {}
             source = primary_location.get('source') or {}
             data_dict[i]["journal_openalex"] = source.get('display_name')
-
             openaccess = w.get('open_access') or {}
             data_dict[i]["openaccess_openalex"] = openaccess.get('is_oa')
-
             data_dict[i]["retracted_openalex"] = w.get('is_retracted')
-            data_dict[i]["language_openalex"] = w.get("language")
-
-            grants = [grant.get('funder_display_name') for grant in w.get('grants', []) or [] if grant.get('funder_display_name')]
-            data_dict[i]["grantinstitutions_openalex"] = ", ".join(grants) if grants else None
 
         proportion = print_progress(i, proportion, total, 'OpenAlex')
 
