@@ -1,10 +1,10 @@
 {
     "Required user inputs below": "Read README.md for instructions. Examples provided",
-
-    "csv_path": "../supporting_files/csvs/data.csv",
-    "elsevier_apikey": "6ed03a4c7c524197109d7103348b5f0f",
-    "gender-api.com_apikey": "816a7e22b349deb6ce183c832bba9cc1156e9117a94b0df6be378ddc69db20e8",
-    "colname_title": "Title",
-    "colname_DOI": "DOI",
+    
+    "csv_path": "example_folder/example_filename.csv",
+    "elsevier_apikey": "6ed03a4c7c5241971...",
+    "gender-api.com_apikey": "816a7e22b349deb6ce183c8...",
+    "colname_title": "example_columnname1",
+    "colname_DOI": "example_columnname2",
     "metadata_in_separate_csv": ""
 }
