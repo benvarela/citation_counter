@@ -12,6 +12,7 @@ dependencies:
   - r-plyr
   - r-rlist
   - r-rjson
+  - r-stringi
   - pip
   - pip:
       - semanticscholar>=0.9.0

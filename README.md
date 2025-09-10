@@ -37,17 +37,23 @@ The user must input the following parameters, by editing the file 'config.json'
 
 ### Notes
 * No API key is required for semantic scholar.
-* ```gender_apikey``` only needs to be specified if you wish to extract first and last author genders by running authors_gender.R.
-* gender-api.com provides users with 100 free requests per month. Larger extractions will have to pay for additional credit.
+* ```gender_apikey``` only needs to be specified if you wish to extract first and last author genders by running ```authors_gender.R```.
+* Although an API key may be obtained for free for gender-api.com, only 100 requests per month are provided for free. Please see subsection Data extraced: ```authors_gender.R``` for more information on managing this.
 
 ## Running the program
-In the terminal, execute the following command. Note that you must have previously activated the citation_env environment. Instructions for this are detailed under User setup / Intallations and virtual environment creation.
+In the terminal, execute the following command. Note that you must have previously activated the citation_env environment. Instructions for this are detailed under User setup / Installations and virtual environment creation.
 ```
 python citation_counter.py
 ```
 Updates will be printed to the terminal as the program runs. The results will be output in a csv called 'citation_counter_output.csv'.
 
-## Data extracted
+Then, if you could also like to run ```authors_gender.R```, which will append to 'citation_counter_output.csv' the probable genders of the first and last authors extracted by OpenAlex, run the following command.
+```
+Rscript authors_gender.R
+```
+This command requires that 'citation_counter_output.csv' has already been created by ```citation_counter.py```.
+
+## Data extracted: ```citation_counter.py```
 The following table tabulates the set metadata output against the APIs used. Entries in the table are the column names used in the output csvs that contain the corresponding metadata from the corresponding API. 
 
 | Metadata | Elsevier | Semantic Scholar | OpenAlex |
@@ -57,6 +63,7 @@ The following table tabulates the set metadata output against the APIs used. Ent
 | FWCI | N/A | N/A | ```FWCI_openalex``` |
 | Citation normalised percentage | N/A | N/A | ```citationnormalisedpercentile_openalex``` |
 | Authors | N/A | ```authors_semanticscholar``` | ```authors_openalex``` |
+| First and last author | N/A | N/A | ```firstlastauthor_openalex``` |
 | Author count | N/A | ```authorcount_semanticscholar``` | ```authorcount_openalex``` |
 | Author countries | N/A | N/A | ```authorcountries_openalex``` |
 | Author institutions | N/A | N/A | ```institutions_openalex``` |
@@ -69,8 +76,27 @@ The following table tabulates the set metadata output against the APIs used. Ent
 ### Notes
 * Author institutions is returned as a string ```"Institution1,type1,country1; Institution2..."```. Note the country and type institution is extractable in addition to the name of the institution
 * Generally, all metadata fields that could hav mutiple entries are presented in comma separated strings: ```"Entry1, Entry2..."```.
+* Author names are UTF-8 encoded, which is not the default encoding for .csv files. As a result, when opening the citation_counter_output.csv file, some author names with characters beyond ASCII style (the basic alphabet) will reder with unusual characters. Therefore, when programatically reading your csv file for data analysis, ensure the encoding is set to UTF-8.
 * For more information on how OpenAlex extracts data on papers, access their detailed [technical documentation](https://docs.openalex.org/api-entities/works/work-object#grants) on 'Work' objects, the data representation of an extracted paper.
 
+## Data extracted: ```authors_gender.R```
+Using the data stored in ```firstlastauthor_openalex``` within citation_counter_output.csv, ```authors_gender.R``` adds four additional columns characterising the certainty that the first and last author's names are male or female names.
+
+| Column | Description | Notes |
+| ------ | ----------- | ----- |
+| ```first_prob_m``` | Certainty that first author's first name is male, value in range 0 - 1 | ```first_prob_m``` and ```first_prob_f``` sum to 1 |
+| ```first_prob_f``` | Certainty that first author's first name is female, value in range 0 - 1 | |
+| ```last_prob_m``` | Certainty that last author's first name is male, value in range 0 - 1 | ```last_prob_m``` and ```last_prob_f``` sum to 1 |
+| ```last_prob_f``` | Certainty that last author's first name is female, value in range 0 - 1 | |
+
+### Method
+A list of all unique first names in the ```firstlastauthor_openalex``` column of citation_counter_output.csv is created. All first names are searched within name_csvs/CommonNamesDatabase.csv, where names with known certainties are stored. If a name canot be found in name_csvs/CommonNamesDatabase.csv, then gender-api.com is queried with the first name in ASCII format. If a name cannot be assigned a gender with sufficient certainty, the associated probabilities, ```first_prob_m```/```first_prob_f``` or ```last_prob_m```/```last_prob_f``` are both assigned -1.
+
+### Source code
+This code is adapted from https://github.com/jdwor/gendercitation. 
+
+### Notes
+* gender-api.com allows users to create a API key for free, however, it is restricted to 100 free requests every month. For larger extractions, users may have to purchase additional credits.
 
 ## Missing data
 
@@ -83,7 +109,7 @@ Where the title or DOI for a paper is not provided, data may no longer be able t
 | OpenAlex | DOI |
 
 ### Handling of missing metadata
-Where metadata is missing, csv entries will be left blank, with the exception of Authors. Missing authors will be written as a string ```'X.,X.'```, as this format interfaces well with gender-api.com. Furthermore, where author first names are missing, they are replaced witih the string ```'X.'```.
+Where metadata is missing, csv entries will be left blank, with the exception of Authors. Missing authors will be written as a string ```'X.,X.'```, as ```authors_gender.R``` recognises this as a missing entry. Furthermore, where author first names are missing, they are replaced witih the string ```'X.'```.
 
 ### Why was some metadata not extracted if I specified both the Title and DOI?
 #### Elsevier

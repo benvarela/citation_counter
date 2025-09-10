@@ -337,6 +337,7 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, 
                         "authors_openalex": None,                       # ^
                         "authorcount_semanticscholar": None,
                         "authorcount_openalex": None,
+                        "firstlastauthor_openalex": None,
                         "journal_elsevier": None,
                         "journal_semanticscholar": None,
                         "journal_openalex": None,
@@ -449,7 +450,6 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
         try:
             paper_result = sch.get_paper(doi)
         except Exception as e:
-            raise
             proportion = print_progress(i, proportion, total, 'Semantic Scholar')
             continue
         
@@ -531,18 +531,29 @@ def get_openalex_data(data_dict: dict) -> dict:
             w = pa.Works()[DOI_link]
         except Exception:
             data_dict[i]['authors_openalex'] = "X.,X."
+            data_dict[i]["firstlastauthor_openalex"] = "X.,X.; X.,X."
         else:
             ## Author associated data
             authors = []
+            first = 'X.,X.'
+            last = 'X.,X.'
             countries = set()
             institutions = set()
 
             for authorship in w.get('authorships', []):
                 # Author name
                 name = reformatauthor_openalex(
-                    (authorship.get('author') or {}).get('display_name') or "X.,X."
+                    (authorship.get('author') or {})
+                    .get('display_name') or "X.,X."
                 )
                 authors.append(name)
+
+                # First and last authors
+                position = authorship.get('author_position')
+                if position == 'first':
+                    first = name
+                elif position == 'last':
+                    last = name
 
                 # Countries
                 for country in authorship.get('countries', []) or []:
@@ -557,6 +568,7 @@ def get_openalex_data(data_dict: dict) -> dict:
             data_dict[i]["institutions_openalex"] = "; ".join(list(institutions)) if institutions else None
             data_dict[i]["authorcount_openalex"] = len(authors) if authors else None
             data_dict[i]["authors_openalex"] = "; ".join(authors) if authors else None
+            data_dict[i]["firstlastauthor_openalex"] = first + "; " + last
 
             ## Citing information
             data_dict[i]["citationcount_openalex"] = w.get('cited_by_count')
@@ -605,12 +617,12 @@ def output_csv(data_dict: dict, all_user_data: pd.DataFrame, create_separate_csv
 
     if create_separate_csv:
         #Output immediately if create separate csv
-        data.to_csv("citation_counter_output.csv", header = True, index = False)
+        data.to_csv("citation_counter_output.csv", header = True, index = False, encoding = 'utf-8')
     else:
         #Otherwise, add citation data columns to user dataframe and output this
         for col in data.columns:
             all_user_data[col] = data[col]
-        all_user_data.to_csv("citation_counter_output.csv", header = True, index = False)
+        all_user_data.to_csv("citation_counter_output.csv", header = True, index = False, encoding = 'utf-8')
 
     # Communicate to user successful output of the csv
     print("** 'citation_counter_output.csv' has been successfully output! **\n")
