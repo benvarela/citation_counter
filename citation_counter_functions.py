@@ -4,16 +4,25 @@ Functions required for citation_counter.py. See function descriptor for informat
 
 #imports
 import json
+from typing import Optional
+
+import httpx
+import subprocess
+import shutil
 import pandas as pd
 from pathlib import Path
 from elsapy.elsclient import ElsClient
 from elsapy.elssearch import ElsSearch
 from semanticscholar import SemanticScholar
 import pyalex as pa
+from semanticscholar.Paper import Paper
+from semanticscholar.SemanticScholarException import ObjectNotFoundException
+
+from results_cache import ResultsCache
 
 ## Functions used within main functions, called in citation_counter.py
 
-def print_progress(i: int, proportion: float, total: int, database: str) -> float:
+def print_progress(i: int, proportion: float, total: int, database: str, c_hits: Optional[int] = None) -> float:
     """
     Print progress updates during data extraction.
 
@@ -27,6 +36,8 @@ def print_progress(i: int, proportion: float, total: int, database: str) -> floa
         Total number of papers.
     database : str
         Name of the database being queried (e.g., "Elsevier" or "Semantic Scholar").
+    c_hits : int or None
+        Number of papers hit in the cache (Optional).
 
     Returns
     -------
@@ -38,7 +49,11 @@ def print_progress(i: int, proportion: float, total: int, database: str) -> floa
             end_char = '!\n'
         else:
             end_char = '...'
-        print("Completed {}% with {}{}".format(round(proportion*100, 3), database, end_char))
+        if c_hits:
+            print("Completed {}% ({}/{} from cache) with {}{}".format(round(proportion*100, 3), str(c_hits), str(i),
+                                                                  database, end_char))
+        else:
+            print("Completed {}% with {}{}".format(round(proportion * 100, 3), database, end_char))
         proportion += 0.1
     
     return proportion
@@ -135,7 +150,8 @@ def reformatauthors_semanticscholar(authors: list) -> str:
     ## Join list of author names with semicolons and return
     return "; ".join(formatted)
 
-def getauthorpapers_semanticscholar(sch, author_id: str, initial_limit: int = 1000, retries: int = 3):
+def getauthorpapers_semanticscholar(sch, author_id: str, initial_limit: int = 1000, retries: int = 3,
+                                    cache: Optional[ResultsCache] = None):
     """
     Safely fetch author papers from Semantic Scholar API with retries
     and progressively smaller limits if the request times out.
@@ -150,16 +166,23 @@ def getauthorpapers_semanticscholar(sch, author_id: str, initial_limit: int = 10
         Starting number of papers to request (default 1000).
     retries : int, optional
         Number of retry attempts before giving up (default 3).
+    cache : ResultsCache, optional
+        ResultsCache instance to store the results of requests made.
 
     Returns
     -------
     list or None
         List of author papers if successful, or None if request fails.
     """
+    if cache is not None:
+        if cache.has(author_id):
+            return cache.get(author_id)
     limit = initial_limit
     for attempt in range(retries):
         try:
-            return sch.get_author_papers(author_id, limit=limit)
+            result = sch.get_author_papers(author_id, limit=limit)
+            cache.set(author_id, result)
+            return result
         except Exception as e:
             limit = max(100, limit // 2)
     return None
@@ -352,7 +375,7 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, 
         
     return data_dict, full_dataframe
 
-def get_elsevier_data(elsevier_apikey: str, data_dict: dict) -> dict:
+def get_elsevier_data(elsevier_apikey: str, data_dict: dict, no_cache: bool = False) -> dict:
     """
     Retrieve citation counts and journal data from the Elsevier API.
 
@@ -368,8 +391,10 @@ def get_elsevier_data(elsevier_apikey: str, data_dict: dict) -> dict:
     dict
         Updated dictionary with citation counts and journal data added.
     """
-    #Instantiate the elsevier client
+    #Instantiate the elsevier client and cache
     els_client = instantiateclient_elsevier(elsevier_apikey)
+    cache = ResultsCache("elsevier", cache_disabled=no_cache)
+    c_hits = 0
 
     #Initialisation of variables for the progress statements to be printed to terminal, using print_progress()
     total = len(data_dict)
@@ -384,19 +409,28 @@ def get_elsevier_data(elsevier_apikey: str, data_dict: dict) -> dict:
         doi = data_dict[i]["DOI"]
         title = data_dict[i]["Title"]
         if doi == "" or title == "":
-            proportion = print_progress(i, proportion, total, 'Elsevier')
+            proportion = print_progress(i, proportion, total, 'Elsevier', c_hits)
             continue
-        
-        ## Using the title and DOI informatino to extract citation count and journal
-        title = cleantitle_elsevier(title, '()')
 
-        #Search for a paper with a title check by ensuring the DOI matches. When errors arise, papers are skipped (due to special characters in the title). 
-        search = ElsSearch("TITLE({})".format(title), 'scopus')
-        try:
-            search.execute(els_client)
-        except:
-            proportion = print_progress(i, proportion, total, 'Elsevier')
-            continue
+        ## Check cache first
+        if cache.has(doi):
+            search = cache.get(doi)
+            c_hits += 1
+        else:
+            # Start new search
+            ## Using the title and DOI informatino to extract citation count and journal
+            title = cleantitle_elsevier(title, '()')
+
+            #Search for a paper with a title check by ensuring the DOI matches. When errors arise, papers are skipped (due to special characters in the title).
+            search = ElsSearch("TITLE({})".format(title), 'scopus')
+            try:
+                search.execute(els_client)
+            except:
+                proportion = print_progress(i, proportion, total, 'Elsevier', c_hits)
+                continue
+
+        #Cache the search object after successful execution
+        cache.set(doi, search)
 
         #Use ElsSearch to extract citation count and journal. Author information can't be found reliably, due to how poor AbsDoc and Fulldoc perform.
         for result in search.results:
@@ -408,11 +442,12 @@ def get_elsevier_data(elsevier_apikey: str, data_dict: dict) -> dict:
                     if 'prism:publicationName' in result.keys():
                         data_dict[i]['journal_elsevier'] = result.get('prism:publicationName')
 
-        proportion = print_progress(i, proportion, total, 'Elsevier')
+        proportion = print_progress(i, proportion, total, 'Elsevier', c_hits)
 
+    cache.save_to_disk()
     return data_dict
 
-def get_semanticscholar_data(data_dict: dict) -> dict:
+def get_semanticscholar_data(data_dict: dict, no_cache: bool = False) -> dict:
     """
     Retrieve citation counts, journal information, and author metadata from the Semantic Scholar API.
 
@@ -430,9 +465,39 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
     print("** Extraction of data with Semantic Scholar API is now beginning **")
     print("A message will be printed below every time a 10% portion of the total papers to analyse is completed.")
     print("Rows previously identified with a warning, because they did not contain one or both entries of DOI and/or Title for a paper will be skipped again.")
-    
-    #Instantiate the SemanticScholar object
-    sch = SemanticScholar()        
+
+    # Recent version of SemanticScholar doesn't like the publicationVenue arg or references so skip them
+    backup_fields_to_query = Paper.FIELDS.copy()
+    fields_to_remove = ['references',
+        'references.abstract',
+        'references.authors',
+        'references.citationCount',
+        'references.citationStyles',
+        'references.corpusId',
+        'references.externalIds',
+        'references.fieldsOfStudy',
+        'references.influentialCitationCount',
+        'references.isOpenAccess',
+        'references.journal',
+        'references.openAccessPdf',
+        'references.paperId',
+        'references.publicationDate',
+        'references.publicationTypes',
+        'references.publicationVenue',
+        'references.referenceCount',
+        'references.s2FieldsOfStudy',
+        'references.title',
+        'references.url',
+        'references.venue',
+        'references.year']
+    for field in fields_to_remove:
+        backup_fields_to_query.remove(field)
+
+    #Instantiate the SemanticScholar object and cache
+    sch = SemanticScholar()
+    cache = ResultsCache("semanticscholar", cache_disabled=no_cache)
+    cache_authors = ResultsCache("semanticscholar_authors", cache_disabled=no_cache)
+    c_hits = 0
 
     #Variables for the progress statements to be printed to terminal, using print_progress()
     total = len(data_dict)
@@ -442,16 +507,37 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
         ## Check DOI, skip iteration if not present.
         doi = data_dict[i]['DOI']
         if doi == "":
-            proportion = print_progress(i, proportion, total, 'Semantic Scholar')
+            proportion = print_progress(i, proportion, total, 'Semantic Scholar', c_hits)
             continue
 
-        ## Extraction of data
-        #Extract paper result with semantic scholar, skip if an error is thrown when retrieving it
-        try:
-            paper_result = sch.get_paper(doi)
-        except Exception as e:
-            proportion = print_progress(i, proportion, total, 'Semantic Scholar')
-            continue
+        ## Check cache first
+        if cache.has(doi):
+            paper_result = cache.get(doi)
+            c_hits += 1
+        else:
+            ## Extraction of data
+            #Extract paper result with semantic scholar, skip if an error is thrown when retrieving it
+            try:
+                paper_result = sch.get_paper(doi)
+            except Exception as e:
+                try:
+                    # Tries to query without missing fields
+                    paper_result = sch.get_paper(doi, fields=backup_fields_to_query)
+                except ObjectNotFoundException as e:
+                    proportion = print_progress(i, proportion, total, 'Semantic Scholar', c_hits)
+                    continue
+                except httpx.ReadTimeout as e:
+                    proportion = print_progress(i, proportion, total, 'Semantic Scholar', c_hits)
+                    print("WARNING: Semantic Scholar API request timed out. Check your internet connection.")
+                    continue
+                except Exception as e:
+                    proportion = print_progress(i, proportion, total, 'Semantic Scholar', c_hits)
+                    import traceback
+                    traceback.print_exc()
+                    continue
+            
+            #Cache the paper_result after successful retrieval
+            cache.set(doi, paper_result)
         
         #Extract citation count. Method is looking at the papers author1 has published, and matching according to title. Take max citation count. JUSTIFICATION FOR THIS PROCESS: This is more complicated than the semanticscholar documentation may suggest. Semantic scholar can give two copies of the same paper, with different citation counts, eg: 'Local Transformed Features for Epileptic Seizure Detection in EEG Signal.' Type that into https://www.semanticscholar.org and see what you get. This is managed by taking the first author, seeing all the papers they're authored on, and then taking the one with a matching title and greatest citation count.        
         citation_count = None
@@ -459,7 +545,7 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
         #Some papers, erroneously, may not have a listed author in Semantic Scholar, eg: https://www.semanticscholar.org/paper/EEG-Signal-Research-for-Identification-of-Epilepsy/140ee25d5ca5dbdf65dafc57f422f00366137bc8
         #If there are authors, check through author1 papers to manage paper duplication problems leading to erroneous citation counts:
         if authors:
-            author1_papers = getauthorpapers_semanticscholar(sch, authors[0]['authorId'])
+            author1_papers = getauthorpapers_semanticscholar(sch, authors[0]['authorId'], cache=cache_authors)
             for author1_paper in author1_papers.raw_data:
                 if 'DOI' in author1_paper['externalIds'].keys():                                # A couple things to note here. Because sometimes the titles extracted have strange characters, I'm only checking to see if the DOI.lower() matches. .lower() is needed because sometimes pre-prints have a letter of lower case and they get chosen instead of the peer-reviewed published paper, which has the citations.
                     if author1_paper['externalIds']['DOI'].lower() == doi.lower():
@@ -489,11 +575,13 @@ def get_semanticscholar_data(data_dict: dict) -> dict:
             data_dict[i]['authors_semanticscholar'] = 'X.,X.'
 
         #Progress statements to be printed to the terminal
-        proportion = print_progress(i, proportion, total, 'Semantic Scholar')
+        proportion = print_progress(i, proportion, total, 'Semantic Scholar', c_hits)
 
+    cache.save_to_disk()
+    cache_authors.save_to_disk()
     return data_dict
 
-def get_openalex_data(data_dict: dict) -> dict:
+def get_openalex_data(data_dict: dict, no_cache: bool = False) -> dict:
     """
     Extracts citation, authorship, and publication metadata for each paper in
     the dataset using the OpenAlex API.
@@ -508,7 +596,9 @@ def get_openalex_data(data_dict: dict) -> dict:
     dict
         Updated dictionary containing additional OpenAlex-derived metadata.
     """
-    # Initialisation of variables for progress updates
+    # Initialisation of variables for progress updates and cache
+    cache = ResultsCache("openalex", cache_disabled=no_cache)
+    c_hits = 0
     total = len(data_dict)
     proportion = 0.1
 
@@ -522,71 +612,81 @@ def get_openalex_data(data_dict: dict) -> dict:
 
         # Skip paper if no DOI stored
         if DOI == "":
-            proportion = print_progress(i, proportion, total, 'OpenAlex')
+            proportion = print_progress(i, proportion, total, 'OpenAlex', c_hits)
             continue
 
-        # Attempt to query OpenAlex by DOI
-        try:
-            DOI_link = 'https://doi.org/' + DOI
-            w = pa.Works()[DOI_link]
-        except Exception:
-            data_dict[i]['authors_openalex'] = "X.,X."
-            data_dict[i]["firstlastauthor_openalex"] = "X.,X.; X.,X."
+        ## Check cache first
+        if cache.has(DOI):
+            w = cache.get(DOI)
+            c_hits += 1
         else:
-            ## Author associated data
-            authors = []
-            first = 'X.,X.'
-            last = 'X.,X.'
-            countries = set()
-            institutions = set()
+            # Attempt to query OpenAlex by DOI
+            try:
+                DOI_link = 'https://doi.org/' + DOI
+                w = pa.Works()[DOI_link]
+                # Cache the successful result
+                cache.set(DOI, w)
+            except Exception:
+                data_dict[i]['authors_openalex'] = "X.,X."
+                data_dict[i]["firstlastauthor_openalex"] = "X.,X.; X.,X."
+                proportion = print_progress(i, proportion, total, 'OpenAlex', c_hits)
+                continue
 
-            for authorship in w.get('authorships', []):
-                # Author name
-                name = reformatauthor_openalex(
-                    (authorship.get('author') or {})
-                    .get('display_name') or "X.,X."
-                )
-                authors.append(name)
+        ## Author associated data
+        authors = []
+        first = 'X.,X.'
+        last = 'X.,X.'
+        countries = set()
+        institutions = set()
 
-                # First and last authors
-                position = authorship.get('author_position')
-                if position == 'first':
-                    first = name
-                elif position == 'last':
-                    last = name
+        for authorship in w.get('authorships', []):
+            # Author name
+            name = reformatauthor_openalex(
+                (authorship.get('author') or {})
+                .get('display_name') or "X.,X."
+            )
+            authors.append(name)
 
-                # Countries
-                for country in authorship.get('countries', []) or []:
-                    countries.add(country)
+            # First and last authors
+            position = authorship.get('author_position')
+            if position == 'first':
+                first = name
+            elif position == 'last':
+                last = name
 
-                # Institutions
-                for institution in authorship.get('institutions', []) or []:
-                    ins = f"{institution.get('display_name')},{institution.get('type')},{institution.get('country_code')}"
-                    institutions.add(ins)
+            # Countries
+            for country in authorship.get('countries', []) or []:
+                countries.add(country)
 
-            data_dict[i]["authorcountries_openalex"] = ", ".join(list(countries)) if countries else None
-            data_dict[i]["institutions_openalex"] = "; ".join(list(institutions)) if institutions else None
-            data_dict[i]["authorcount_openalex"] = len(authors) if authors else None
-            data_dict[i]["authors_openalex"] = "; ".join(authors) if authors else None
-            data_dict[i]["firstlastauthor_openalex"] = first + "; " + last
+            # Institutions
+            for institution in authorship.get('institutions', []) or []:
+                ins = f"{institution.get('display_name')},{institution.get('type')},{institution.get('country_code')}"
+                institutions.add(ins)
 
-            ## Citing information
-            data_dict[i]["citationcount_openalex"] = w.get('cited_by_count')
-            data_dict[i]["workscitedcount_openalex"] = len(w.get('referenced_works') or [])
-            data_dict[i]["FWCI_openalex"] = w.get('fwci')
-            citation_normalised_percentile = w.get('citation_normalized_percentile') or {}
-            data_dict[i]["citationnormalisedpercentile_openalex"] = citation_normalised_percentile.get('value')
+        data_dict[i]["authorcountries_openalex"] = ", ".join(list(countries)) if countries else None
+        data_dict[i]["institutions_openalex"] = "; ".join(list(institutions)) if institutions else None
+        data_dict[i]["authorcount_openalex"] = len(authors) if authors else None
+        data_dict[i]["authors_openalex"] = "; ".join(authors) if authors else None
+        data_dict[i]["firstlastauthor_openalex"] = first + "; " + last
 
-            ## Publishing information
-            primary_location = w.get('primary_location') or {}
-            source = primary_location.get('source') or {}
-            data_dict[i]["journal_openalex"] = source.get('display_name')
-            openaccess = w.get('open_access') or {}
-            data_dict[i]["openaccess_openalex"] = openaccess.get('is_oa')
-            data_dict[i]["retracted_openalex"] = w.get('is_retracted')
+        ## Citing information
+        data_dict[i]["citationcount_openalex"] = w.get('cited_by_count')
+        data_dict[i]["workscitedcount_openalex"] = len(w.get('referenced_works') or [])
+        data_dict[i]["FWCI_openalex"] = w.get('fwci')
+        citation_normalised_percentile = w.get('citation_normalized_percentile') or {}
+        data_dict[i]["citationnormalisedpercentile_openalex"] = citation_normalised_percentile.get('value')
 
-        proportion = print_progress(i, proportion, total, 'OpenAlex')
+        ## Publishing information
+        primary_location = w.get('primary_location') or {}
+        source = primary_location.get('source') or {}
+        data_dict[i]["journal_openalex"] = source.get('display_name')
+        openaccess = w.get('open_access') or {}
+        data_dict[i]["openaccess_openalex"] = openaccess.get('is_oa')
+        data_dict[i]["retracted_openalex"] = w.get('is_retracted')
 
+        proportion = print_progress(i, proportion, total, 'OpenAlex', c_hits)
+
+    cache.save_to_disk()
     return data_dict
 
 def output_csv(data_dict: dict, all_user_data: pd.DataFrame, create_separate_csv: bool) -> None:
@@ -628,3 +728,22 @@ def output_csv(data_dict: dict, all_user_data: pd.DataFrame, create_separate_csv
     print("** 'citation_counter_output.csv' has been successfully output! **\n")
 
     return None
+
+def execute_gender_script():
+    # Check if Rscript is available
+    if shutil.which("Rscript") is None:
+        print("WARNING: Rscript not found. Skipping gender analysis.")
+        print("To install R, visit: https://www.r-project.org/")
+    else:
+        try:
+            print("** Running gender analysis script **")
+            result = subprocess.run(["Rscript", "authors_gender.R"],
+                                    capture_output=True, text=True)
+            if result.returncode == 0:
+                print("** Gender analysis completed successfully **")
+            else:
+                print(f"WARNING: Gender script failed with return code {result.returncode}")
+                if result.stderr:
+                    print(f"Error output: {result.stderr}")
+        except Exception as e:
+            print(f"WARNING: Failed to run gender script: {e}")

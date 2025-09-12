@@ -4,3 +4,5 @@ __pycache__
 logs
 data
 dump.json
+/.idea
+*.csv
