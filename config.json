@@ -6,5 +6,6 @@
     "gender-api.com_apikey": "816a7e22b349deb6ce183c8...",
     "colname_title": "example_columnname1",
     "colname_DOI": "example_columnname2",
-    "metadata_in_separate_csv": ""
+    "metadata_in_separate_csv": "",
+    "year": "20XX"
 }

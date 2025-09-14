@@ -34,6 +34,7 @@ The user must input the following parameters, by editing the file 'config.json'
 | ```colname_title``` | The exact column name that contains all the titles of your journal articles. | No |
 | ```colname_DOI``` | The exact column name that contains all of the DOIs of your journal articles. | No |
 | ```retain_all_columns``` | Output csv called 'citation_counter_output.csv' will contain extracted metadata columns in addition to the columns in the input csv if value is set to "True". Otherwise, only extracted metadata will be in the output csv and the value of this parameter may be left as "". | Yes |
+| ```year``` | The current year | No | 
 
 ### Notes
 * No API key is required for semantic scholar.
@@ -56,22 +57,28 @@ This command requires that 'citation_counter_output.csv' has already been create
 ## Data extracted: ```citation_counter.py```
 The following table tabulates the set metadata output against the APIs used. Entries in the table are the column names used in the output csvs that contain the corresponding metadata from the corresponding API. 
 
-| Metadata | Elsevier | Semantic Scholar | OpenAlex |
+| Metadata | Elsevier | Semantic Scholar | OpenAlex | Scimago |
 | ------- | -------- | ---------------- | -------- |
-| Citation count | ```citationcount_elsevier``` | ```citationcount_semanticscholar``` | ```citationcount_openalex``` |
-| Works cited count | N/A | N/A | ```workscitedcount_openalex``` |
-| FWCI | N/A | N/A | ```FWCI_openalex``` |
-| Citation normalised percentage | N/A | N/A | ```citationnormalisedpercentile_openalex``` |
-| Authors | N/A | ```authors_semanticscholar``` | ```authors_openalex``` |
-| First and last author | N/A | N/A | ```firstlastauthor_openalex``` |
-| Author count | N/A | ```authorcount_semanticscholar``` | ```authorcount_openalex``` |
-| Author countries | N/A | N/A | ```authorcountries_openalex``` |
-| Author institutions | N/A | N/A | ```institutions_openalex``` |
-| Publishing location | ```journal_elsevier``` | ```journal_semanticscholar``` | ```journal_openalex``` |
-| Published language | N/A | N/A | ```language_openalex``` |
-| Grant institutions | N/A | N/A | ```grantinstitutions_openalex``` |
-| Open access | N/A | N/A | ```openaccess_openalex``` |
-| Retracted | N/A | N/A | ```retracted_openalex``` |
+| Citation count | ```citationcount_elsevier``` | ```citationcount_semanticscholar``` | ```citationcount_openalex``` | N/A |
+| Works cited count | N/A | N/A | ```workscitedcount_openalex``` | N/A |
+| FWCI | N/A | N/A | ```FWCI_openalex``` | N/A |
+| Citation normalised percentage | N/A | N/A | ```citationnormalisedpercentile_openalex``` | N/A |
+| Authors | N/A | ```authors_semanticscholar``` | ```authors_openalex``` | N/A |
+| First and last author | N/A | N/A | ```firstlastauthor_openalex``` | N/A |
+| Author count | N/A | ```authorcount_semanticscholar``` | ```authorcount_openalex``` | N/A |
+| Author countries | N/A | N/A | ```authorcountries_openalex``` | N/A |
+| Author institutions | N/A | N/A | ```institutions_openalex``` | N/A |
+| Publishing location | ```journal_elsevier``` | ```journal_semanticscholar``` |  N/A |```journal_openalex``` | N/A |
+| Publishing location SJR | N/A | N/A | N/A | ```SJR_scimago``` |
+| Publishing location H-index | N/A | N/A | N/A | ```Hindex_scimago``` |
+| Publishing location Quartile | N/A | N/A | N/A | ```journalquartile_scimago``` |
+| Published language | N/A | N/A | ```language_openalex``` | N/A |
+| Grant institutions | N/A | N/A | ```grantinstitutions_openalex``` | N/A |
+| Open access | N/A | N/A | ```openaccess_openalex``` | N/A |
+| Retracted | N/A | N/A | ```retracted_openalex``` | N/A |
+
+### Source code
+Scimago data is accessed through an Pandas Dataframe updated yearly on the following https://github.com/Michael-E-Rose/SCImagoJournalRankIndicators?tab=readme-ov-file. 
 
 ### Notes
 * Author institutions is returned as a string ```"Institution1,type1,country1; Institution2..."```. Note the country and type institution is extractable in addition to the name of the institution

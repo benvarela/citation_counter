@@ -353,6 +353,8 @@ def readjson() -> dict:
                     Column name containing DOIs.
                 "metadata_in_separate_csv": str
                     Either "" or "True".
+                "year": int
+                    The current year
             }
 
     Raises
@@ -374,8 +376,10 @@ def readjson() -> dict:
     #Check appropriate input for metadata_in_separate_csv
     v = con["metadata_in_separate_csv"]
     if v not in ("", "True"):
-        raise ValueError(f"Invalid value for metadata_in_separate_csv: {v!r}. Expected '' or 'True'.")
-    
+        raise ValueError(f"Invalid value for 'metadata_in_separate_csv': {v!r}. Expected '' or 'True'.")
+    if not con["year"].isnumeric():
+        raise ValueError(f"Invalid value for 'year': {con['year']}. Expected a number.")
+
     # Extract values and store in dictinoary to return
     data = {
     "csv_path": con["csv_path"],
@@ -383,6 +387,7 @@ def readjson() -> dict:
     "colname_title": con["colname_title"],
     "colname_DOI": con["colname_DOI"],
     "metadata_in_separate_csv": con["metadata_in_separate_csv"],
+    "year": int(con["year"])
     }
 
     # User communication
@@ -392,6 +397,7 @@ def readjson() -> dict:
     print("colname_title: {}".format(data["colname_title"]))
     print("colname_DOI: {}".format(data["colname_DOI"]))
     print("metadata_in_separate_csv: {}".format(data["metadata_in_separate_csv"]))
+    print("year: {}".format(data["year"]))
     print("")
 
     return data
@@ -806,14 +812,14 @@ def get_openalex_data(data_dict: dict, no_cache: bool = False) -> dict:
     cache.save_to_disk()
     return data_dict
 
-def get_scimago_data(data_dict: dict) -> dict:
+def get_scimago_data(data_dict: dict, year: int) -> dict:
     """
     
     """
     ## Import the most recent Scimago statistics as a pd.Dataframe, subset for only 2024 data
     url = 'https://raw.githubusercontent.com/Michael-E-Rose/SCImagoJournalRankIndicators/master/all.csv'
     df = pd.read_csv(url)
-    df = df[df['year'] == 2024]
+    df = df[df['year'] == year]
 
     ## Create a dictionary that calculates and stores the quartile thresholds
     journal_quartiles = {}
