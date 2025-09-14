@@ -10,6 +10,8 @@ import httpx
 import subprocess
 import shutil
 import pandas as pd
+import string
+import numpy as np
 from pathlib import Path
 from elsapy.elsclient import ElsClient
 from elsapy.elssearch import ElsSearch
@@ -217,6 +219,118 @@ def reformatauthor_openalex(author: str) -> str:
     first, last = tokens[0], tokens[-1]
     return f"{last},{first}"
 
+def reformatjournal_scimago(journal: str) -> str:
+    """
+    Remove all punctuation and commas from a journal and return it in lower case.
+
+    Standardisation helps with rigid look up in scimago pd.Dataframe.
+
+    Parameters
+    ----------
+    journal : str
+        Input string that may contain punctuation, commas, or mixed case characters.
+
+    Returns
+    -------
+    str
+        A processed version of the input string with all punctuation removed 
+        and all letters converted to lower case.
+    """
+    # Return None if None was passed
+    if journal is None:
+        return None
+    # Else, remove all punctuation and convert to lower case
+    else:
+        translator = str.maketrans('', '', string.punctuation)
+        return journal.translate(translator).lower()
+
+def manageNan_scimago(value: pd.Series):
+    """
+    Convert a pandas Series containing a single value to a Python scalar, replacing NaN with None.
+
+    Parameters
+    ----------
+    value : pd.Series
+        A pandas Series expected to contain exactly one element.
+
+    Returns
+    -------
+    result : object
+        The scalar value contained in the Series, or None if the value is NaN.
+    """
+    if pd.isna(value.item()):
+        return None
+    else:
+        return value.item()
+
+def addjournalinfo_scimago(df: pd.DataFrame, data_dict: dict, i: int, journal_quartiles: dict, journals: dict, journal: str) -> dict:
+    """
+    Add Scimago journal metrics (SJR, H-index, and quartile) to a data dictionary entry.
+
+    This function looks up a journal in a DataFrame containing Scimago metrics, extracts
+    the SJR and H-index, evaluates the journal's quartile based on field-specific SJR
+    boundaries, and stores the information in a dictionary entry corresponding to the
+    given index.
+
+    Parameters
+    ----------
+    df : pd.DataFrame
+        DataFrame containing Scimago journal data with columns 'Title', 'SJR', 'h-index', and 'field'.
+    data_dict : dict
+        Dictionary of article or journal entries where metrics will be added.
+    i : int
+        Index in `data_dict` corresponding to the entry to update.
+    journal_quartiles : dict
+        Dictionary mapping journal fields to lists of SJR percentile boundaries.
+    journals : dict
+        Dictionary mapping input journal names to the canonical names in `df`.
+    journal : str
+        Name of the journal to look up.
+
+    Returns
+    -------
+    data_dict : dict
+        The updated dictionary with added fields:
+        - 'SJR_openalex': SJR value or None
+        - 'Hindex_openalex': H-index value or None
+        - 'journalquartile_scimago': Quartile string ('Q1'-'Q4') if SJR exists
+
+    Notes
+    -----
+    - If no SJR or H-index is found for the journal, the corresponding dictionary entries
+      will be None.
+    - Quartiles are determined according to the SJR percentile boundaries of the journal's field.
+    - Relies on `manageNan_scimago` to safely handle missing values in the DataFrame.
+    """
+    # Lookup name of the journal, given a match was found
+    dfjournalname = journals[journal]
+
+    ## Extraction of the SJR and H-index if a journal name match is found
+    sjr = manageNan_scimago(df[df['Title'] == dfjournalname]['SJR'])
+    data_dict[i]['SJR_openalex'] = sjr
+    data_dict[i]['Hindex_openalex'] = manageNan_scimago(df[df['Title'] == dfjournalname]['h-index'])
+                                                        
+    ## Where an SJR was found, evaluate the quartile
+    # Check an sjr was found
+    if sjr:
+        # Find the field and its percentile boundaries
+        field = df[df['Title'] == dfjournalname]['field'].item()
+        percentileboundaries = journal_quartiles[field]
+
+        # Evaluate the quartile
+        quartile = None
+        if sjr < percentileboundaries[0]:
+            quartile = 'Q1'
+        elif sjr < percentileboundaries[1]:
+            quartile = 'Q2'
+        elif sjr < percentileboundaries[2]:
+            quartile = 'Q3'
+        else:
+            quartile = 'Q4'
+
+        # Store the quartile
+        data_dict[i]['journalquartile_scimago'] = quartile
+
 ## Main functions
 
 def readjson() -> dict:
@@ -371,6 +485,9 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, 
                         "citationnormalisedpercentile_openalex": None,
                         "workscitedcount_openalex": None,
                         "retracted_openalex": None,
+                        "SJR_scimago": None,
+                        "Hindex_scimago": None,
+                        "journalquartile_scimago": None
                        }
         
     return data_dict, full_dataframe
@@ -687,6 +804,44 @@ def get_openalex_data(data_dict: dict, no_cache: bool = False) -> dict:
         proportion = print_progress(i, proportion, total, 'OpenAlex', c_hits)
 
     cache.save_to_disk()
+    return data_dict
+
+def get_scimago_data(data_dict: dict) -> dict:
+    """
+    
+    """
+    ## Import the most recent Scimago statistics as a pd.Dataframe, subset for only 2024 data
+    url = 'https://raw.githubusercontent.com/Michael-E-Rose/SCImagoJournalRankIndicators/master/all.csv'
+    df = pd.read_csv(url)
+    df = df[df['year'] == 2024]
+
+    ## Create a dictionary that calculates and stores the quartile thresholds
+    journal_quartiles = {}
+    for field in df['field'].unique():
+        df_fields = df[df['field'] == field]['SJR']
+        percentile_boundaries = np.percentile(df_fields, [25, 50, 75])
+        journal_quartiles[field] = percentile_boundaries
+
+    ## Create a list of the stored journals. Clean strings are the keys, values are the original strings for lookup
+    journals = {}
+    for journal in df['Title'].unique():
+        journals[reformatjournal_scimago(journal)] = journal
+
+    ## For each journal/source attempt to review the SJR and h-index
+    for i in range(len(data_dict)):
+        # Extract and standardise the associated journal
+        el_journal = reformatjournal_scimago(data_dict[i]['journal_elsevier'])
+        ss_journal = reformatjournal_scimago(data_dict[i]['journal_semanticscholar'])
+        oa_journal = reformatjournal_scimago(data_dict[i]['journal_openalex'])
+
+        # Check whether there is a matching journal stored in the elsevier journal field
+        if el_journal in journals.keys():
+            data_dict = addjournalinfo_scimago(df, data_dict, i, journal_quartiles, journals, el_journal)
+        elif oa_journal in journals.keys():
+            data_dict = addjournalinfo_scimago(df, data_dict, i, journal_quartiles, journals, oa_journal)
+        elif ss_journal in journals.keys():
+            data_dict = addjournalinfo_scimago(df, data_dict, i, journal_quartiles, journals, ss_journal)
+
     return data_dict
 
 def output_csv(data_dict: dict, all_user_data: pd.DataFrame, create_separate_csv: bool) -> None:
