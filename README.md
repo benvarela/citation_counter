@@ -134,3 +134,7 @@ Where metadata is missing, csv entries will be left blank, with the exception of
 #### OpenAlex
 * Not all journal articles are available in the OpenAlex API
 * Not all metadata field may be populated for every paper. For more information, review the [technical documentation](https://docs.openalex.org/api-entities/works/work-object#grants)
+
+#### Scimago
+* SJR values are only available for journals and book collections
+* Due to the method of look up, journals will only be found if the name extracted using the three prior APIs matches exactly the name stored in the Scimago database. Unfortunately, this is not guarunteed.
