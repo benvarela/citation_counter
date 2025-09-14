@@ -1,6 +1,6 @@
 # README
 ## Function
-The citation_counter module outputs a set of metadata from a set of journal articles provided by the user by interfacing with the [Elsevier](https://dev.elsevier.com), [Semantic Scholar](https://www.semanticscholar.org/product/api) and [Open Alex](https://docs.openalex.org/how-to-use-the-api/api-overview) APIs.
+The citation_counter module outputs a set of metadata from a set of journal articles provided by the user by interfacing with the [Elsevier](https://dev.elsevier.com), [Semantic Scholar](https://www.semanticscholar.org/product/api), [Open Alex](https://docs.openalex.org/how-to-use-the-api/api-overview) and [Scimago](https://www.scimagojr.com) APIs.
 
 ## CSV file requirement (file input)
 A csv file with the title and DOI of each journal article to extract metadata for is required.
@@ -58,7 +58,7 @@ This command requires that 'citation_counter_output.csv' has already been create
 The following table tabulates the set metadata output against the APIs used. Entries in the table are the column names used in the output csvs that contain the corresponding metadata from the corresponding API. 
 
 | Metadata | Elsevier | Semantic Scholar | OpenAlex | Scimago |
-| ------- | -------- | ---------------- | -------- |
+| ------- | --------- | ---------------- | -------- | ------- |
 | Citation count | ```citationcount_elsevier``` | ```citationcount_semanticscholar``` | ```citationcount_openalex``` | N/A |
 | Works cited count | N/A | N/A | ```workscitedcount_openalex``` | N/A |
 | FWCI | N/A | N/A | ```FWCI_openalex``` | N/A |
