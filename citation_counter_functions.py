@@ -904,9 +904,14 @@ def execute_gender_script():
         print("To install R, visit: https://www.r-project.org/")
     else:
         try:
-            print("** Running gender analysis script **")
+            print("** Running gender analysis script in background. Output will be displayed upon completion... **")
             result = subprocess.run(["Rscript", "authors_gender.R"],
                                     capture_output=True, text=True)
+            
+            # Print the R script output
+            if result.stdout:
+                print(result.stdout)
+            
             if result.returncode == 0:
                 print("** Gender analysis completed successfully **")
             else:

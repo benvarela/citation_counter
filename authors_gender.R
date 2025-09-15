@@ -5,6 +5,35 @@ library(rlist)
 library(rjson)
 library(stringi)
 
+# Cache helper functions
+load_gender_cache <- function() {
+  cache_dir <- "data/cache"
+  cache_file <- file.path(cache_dir, "gender-api-names.csv")
+  
+  if (!dir.exists(cache_dir)) {
+    dir.create(cache_dir, recursive = TRUE)
+  }
+  
+  if (file.exists(cache_file)) {
+    cache_data <- read.csv(cache_file, stringsAsFactors = FALSE)
+    cache_data$name <- trimws(tolower(cache_data$name))
+    return(cache_data)
+  } else {
+    return(data.frame(name = character(0), prob.m = numeric(0), prob.w = numeric(0), stringsAsFactors = FALSE))
+  }
+}
+
+save_gender_cache <- function(cache_data) {
+  cache_dir <- "data/cache"
+  cache_file <- file.path(cache_dir, "gender-api-names.csv")
+  
+  if (!dir.exists(cache_dir)) {
+    dir.create(cache_dir, recursive = TRUE)
+  }
+  
+  write.csv(cache_data, cache_file, row.names = FALSE)
+}
+
 # Suppress warnings for the whole block
 suppressWarnings({
 
@@ -35,6 +64,9 @@ suppressWarnings({
   first_last_df <- as.data.frame(do.call(rbind, first_last_given_names), stringsAsFactors = FALSE)
   colnames(first_last_df) <- c("first_given", "last_given")
 
+  # Load existing cache
+  cached_genders <- load_gender_cache()
+  
   # Prepare unique names for gender lookup
   name_list <- unique(na.omit(c(first_last_df$first_given, first_last_df$last_given)))
   initials <- unlist(lapply(name_list, is.initials))
@@ -48,6 +80,16 @@ suppressWarnings({
   # Skip initials
   namegends$prob.m[initials] <- -1
   namegends$prob.w[initials] <- -1
+  
+  # Fill in from cache
+  if (nrow(cached_genders) > 0) {
+    cached_matches <- match(namegends$name, cached_genders$name)
+    cached_idx <- which(!is.na(cached_matches))
+    if (length(cached_idx) > 0) {
+      namegends$prob.m[cached_idx] <- cached_genders$prob.m[cached_matches[cached_idx]]
+      namegends$prob.w[cached_idx] <- cached_genders$prob.w[cached_matches[cached_idx]]
+    }
+  }
 
   # Fill in common names from pre-built database
   commonnames <- read.csv("name_csvs/CommonNamesDatabase.csv", stringsAsFactors = FALSE)[, -1]
@@ -60,6 +102,17 @@ suppressWarnings({
 
   # Query gender-api for remaining names
   r <- which(is.na(namegends$prob.m))
+  api_call_count <- 0
+  
+  # Report cache statistics
+  cached_count <- sum(!is.na(namegends$prob.m) & namegends$prob.m != -1)
+  common_count <- sum(!is.na(namegends$prob.m) & namegends$prob.m != -1) - nrow(cached_genders)
+  remaining_count <- length(r)
+  cat("Cache statistics:\n")
+  cat("- Names loaded from cache:", nrow(cached_genders), "\n")
+  cat("- Names found in common names database:", max(0, common_count), "\n") 
+  cat("- Names remaining for API lookup:", remaining_count, "\n")
+  
   for(i in r){
     this_name <- namegends$name[i]
     json_file <- paste0("https://gender-api.com/get?name=", this_name, "&key=", gender_api_key)
@@ -76,8 +129,20 @@ suppressWarnings({
       namegends$prob.w[i] <- -1
     }
 
+    api_call_count <- api_call_count + 1
+    
+    # Save cache every 10 API calls
+    if (api_call_count %% 10 == 0) {
+      current_cache <- namegends[!is.na(namegends$prob.m), ]
+      save_gender_cache(current_cache)
+    }
+
     Sys.sleep(round(runif(1,1,3),0))
   }
+  
+  # Save final cache after all API calls
+  final_cache <- namegends[!is.na(namegends$prob.m), ]
+  save_gender_cache(final_cache)
 
   # Lookup function using match
   lookup_gender_prob <- function(name){
