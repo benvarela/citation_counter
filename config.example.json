@@ -1,0 +1,11 @@
+{
+    "Required user inputs below": "Read README.md for instructions. Examples provided",
+    
+    "csv_path": "data/spreadsheet_to_query.csv",
+    "elsevier_apikey": "abcdef12345678...",
+    "gender-api.com_apikey": "abcdef12345678...",
+    "colname_title": "example_columnname1",
+    "colname_DOI": "example_columnname2",
+    "metadata_in_separate_csv": "",
+    "year": "20XX"
+}
