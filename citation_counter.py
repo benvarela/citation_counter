@@ -21,7 +21,7 @@ if __name__ == '__main__':
     data_dict = f.get_elsevier_data(d["elsevier_apikey"], data_dict, args.no_cache)
     data_dict = f.get_semanticscholar_data(data_dict, args.no_cache)
     data_dict = f.get_openalex_data(data_dict, args.no_cache)
-    data_dict = f.get_scimago_data(data_dict)
+    data_dict = f.get_scimago_data(data_dict, args.no_cache)
 
     #Output csv
     f.output_csv(data_dict, full_dataframe, d["metadata_in_separate_csv"])
