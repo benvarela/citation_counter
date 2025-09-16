@@ -24,7 +24,8 @@ install.packages("parallel")
 ```
 
 ### Arguments entry into config.json
-The user must input the following parameters, by editing the file 'config.json'
+The user must input the following parameters, by creating a copy of 'config.example.json' and renaming it to 
+'config.json'. The following parameters must be changed:
 
 | Parameter | Explanation | Optional (Yes/No) |
 | --------- | ----------- | ----------------- |
@@ -39,7 +40,7 @@ The user must input the following parameters, by editing the file 'config.json'
 ### Notes
 * No API key is required for semantic scholar.
 * ```gender_apikey``` only needs to be specified if you wish to extract first and last author genders by running ```authors_gender.R```.
-* Although an API key may be obtained for free for gender-api.com, only 100 requests per month are provided for free. Please see subsection Data extraced: ```authors_gender.R``` for more information on managing this.
+* Although an API key may be obtained for free for gender-api.com, only 100 requests per month are provided for free. Please see subsection Data extracted: ```authors_gender.R``` for more information on managing this.
 
 ## Running the program
 In the terminal, execute the following command. Note that you must have previously activated the citation_env environment. Instructions for this are detailed under User setup / Installations and virtual environment creation.

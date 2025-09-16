@@ -812,13 +812,20 @@ def get_openalex_data(data_dict: dict, no_cache: bool = False) -> dict:
     cache.save_to_disk()
     return data_dict
 
-def get_scimago_data(data_dict: dict, year: int) -> dict:
+def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict:
     """
     
     """
     ## Import the most recent Scimago statistics as a pd.Dataframe, subset for only 2024 data
+    cache = ResultsCache("scimago", cache_disabled=no_cache)
     url = 'https://raw.githubusercontent.com/Michael-E-Rose/SCImagoJournalRankIndicators/master/all.csv'
-    df = pd.read_csv(url)
+
+    if cache.has(url):
+        df = cache.get(url)
+    else:
+        df = pd.read_csv(url)
+        cache.set(url, df)
+        cache.save_to_disk()
     df = df[df['year'] == year]
 
     ## Create a dictionary that calculates and stores the quartile thresholds
@@ -897,9 +904,14 @@ def execute_gender_script():
         print("To install R, visit: https://www.r-project.org/")
     else:
         try:
-            print("** Running gender analysis script **")
+            print("** Running gender analysis script in background. Output will be displayed upon completion... **")
             result = subprocess.run(["Rscript", "authors_gender.R"],
                                     capture_output=True, text=True)
+            
+            # Print the R script output
+            if result.stdout:
+                print(result.stdout)
+            
             if result.returncode == 0:
                 print("** Gender analysis completed successfully **")
             else:
