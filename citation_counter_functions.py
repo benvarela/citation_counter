@@ -24,6 +24,30 @@ from results_cache import ResultsCache
 
 ## Functions used within main functions, called in citation_counter.py
 
+def checkjsonbool(v: str, paramter: str) -> None:
+    """
+    Validate that a string value corresponds to an expected JSON-style boolean.
+
+    This function checks whether the provided string `v` is either an empty
+    string ("") or the literal "True". If the value does not match either of
+    these options, a ValueError is raised.
+
+    Parameters
+    ----------
+    v : str
+        The string value to validate.
+    paramter : str
+        The name of the parameter being validated. Used in the error
+        message if validation fails.
+
+    Raises
+    ------
+    ValueError
+        If `v` is not equal to "" or "True".
+    """
+    if v not in ("", "True"):
+        raise ValueError(f"Invalid value for '{str}': {v!r}. Expected '' or 'True'.")
+
 def print_progress(i: int, proportion: float, total: int, database: str, c_hits: Optional[int] = None) -> float:
     """
     Print progress updates during data extraction.
@@ -247,6 +271,7 @@ def reformatjournal_scimago(journal: str) -> str:
 def manageNan_scimago(value: pd.Series):
     """
     Convert a pandas Series containing a single value to a Python scalar, replacing NaN with None.
+    Includes handling for missing or duplicate journal entries
 
     Parameters
     ----------
@@ -258,10 +283,18 @@ def manageNan_scimago(value: pd.Series):
     result : object
         The scalar value contained in the Series, or None if the value is NaN.
     """
-    if pd.isna(value.item()):
+    # Handling for missing journal, or duplicate journal, and extract as scalar
+    if value.empty:
         return None
+    if len(value) > 1:
+        if value.iloc[0] != value.iloc[1]:
+            print('!!')
+        value = value.iloc[0]
     else:
-        return value.item()
+        value = value.item()
+
+    # Return None or scalar as appropriate
+    return None if pd.isna(value) else value
 
 def addjournalinfo_scimago(df: pd.DataFrame, data_dict: dict, i: int, journal_quartiles: dict, journals: dict, journal: str) -> dict:
     """
@@ -307,29 +340,31 @@ def addjournalinfo_scimago(df: pd.DataFrame, data_dict: dict, i: int, journal_qu
 
     ## Extraction of the SJR and H-index if a journal name match is found
     sjr = manageNan_scimago(df[df['Title'] == dfjournalname]['SJR'])
-    data_dict[i]['SJR_openalex'] = sjr
-    data_dict[i]['Hindex_openalex'] = manageNan_scimago(df[df['Title'] == dfjournalname]['h-index'])
+    data_dict[i]['SJR_scimago'] = sjr
+    data_dict[i]['Hindex_scimago'] = manageNan_scimago(df[df['Title'] == dfjournalname]['h-index'])
                                                         
     ## Where an SJR was found, evaluate the quartile
     # Check an sjr was found
     if sjr:
         # Find the field and its percentile boundaries
-        field = df[df['Title'] == dfjournalname]['field'].item()
+        field = df[df['Title'] == dfjournalname]['field'].iloc[0]
         percentileboundaries = journal_quartiles[field]
 
         # Evaluate the quartile
         quartile = None
         if sjr < percentileboundaries[0]:
-            quartile = 'Q1'
-        elif sjr < percentileboundaries[1]:
-            quartile = 'Q2'
-        elif sjr < percentileboundaries[2]:
-            quartile = 'Q3'
-        else:
             quartile = 'Q4'
+        elif sjr < percentileboundaries[1]:
+            quartile = 'Q3'
+        elif sjr < percentileboundaries[2]:
+            quartile = 'Q2'
+        else:
+            quartile = 'Q1'
 
         # Store the quartile
         data_dict[i]['journalquartile_scimago'] = quartile
+
+    return data_dict
 
 ## Main functions
 
@@ -351,10 +386,14 @@ def readjson() -> dict:
                     Column name containing titles.
                 "colname_DOI": str
                     Column name containing DOIs.
-                "metadata_in_separate_csv": str
-                    Either "" or "True".
                 "year": int
                     The current year
+                "retain_all_columns": str
+                    Either "" or "True".
+                "no_cache": str
+                    Either "" or "True".
+                "skip_gender": str
+                    Either "" or "True".
             }
 
     Raises
@@ -362,7 +401,7 @@ def readjson() -> dict:
     FileNotFoundError
         If `config.json` does not exist.
     ValueError
-        If `metadata_in_separate_csv` has an invalid value.
+        If `retain_all_columns` has an invalid value.
     """
 
     #Open the json file
@@ -373,31 +412,23 @@ def readjson() -> dict:
         print("ERROR: Make sure there is a file name config.json in this folder. More information:\n")
         raise
 
-    #Check appropriate input for metadata_in_separate_csv
-    v = con["metadata_in_separate_csv"]
-    if v not in ("", "True"):
-        raise ValueError(f"Invalid value for 'metadata_in_separate_csv': {v!r}. Expected '' or 'True'.")
+    # Check appropriate input for boolean inputs, and the numeric input of year
+    for bool_parameter in ['retain_all_columns', 'no_cache', 'skip_gender']:
+        checkjsonbool(con[bool_parameter], bool_parameter)
     if not con["year"].isnumeric():
         raise ValueError(f"Invalid value for 'year': {con['year']}. Expected a number.")
+    else:
+        con['year'] = int(con['year'])
 
-    # Extract values and store in dictinoary to return
-    data = {
-    "csv_path": con["csv_path"],
-    "elsevier_apikey": con["elsevier_apikey"],
-    "colname_title": con["colname_title"],
-    "colname_DOI": con["colname_DOI"],
-    "metadata_in_separate_csv": con["metadata_in_separate_csv"],
-    "year": int(con["year"])
-    }
+    # Extract values and store in dictionary to return. Should have really used a function and loop for these.
+    data = {}
+    for key in con.keys():
+        data[key] = con[key]
 
     # User communication
     print("\n** Inputs read! Your inputs are: **")
-    print("csv_path: {}".format(data["csv_path"]))
-    print("elsevier_apikey: {}".format(data["elsevier_apikey"]))
-    print("colname_title: {}".format(data["colname_title"]))
-    print("colname_DOI: {}".format(data["colname_DOI"]))
-    print("metadata_in_separate_csv: {}".format(data["metadata_in_separate_csv"]))
-    print("year: {}".format(data["year"]))
+    for key in data.keys():
+        print(f'{key}: {data[key]}')
     print("")
 
     return data
@@ -816,7 +847,7 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
     """
     
     """
-    ## Import the most recent Scimago statistics as a pd.Dataframe, subset for only 2024 data
+    ## Import the most recent Scimago statistics as a pd.Dataframe, subset for only year - 1 data
     cache = ResultsCache("scimago", cache_disabled=no_cache)
     url = 'https://raw.githubusercontent.com/Michael-E-Rose/SCImagoJournalRankIndicators/master/all.csv'
 
@@ -826,12 +857,12 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
         df = pd.read_csv(url)
         cache.set(url, df)
         cache.save_to_disk()
-    df = df[df['year'] == year]
+    df = df[df['year'] == (year - 1)]
 
     ## Create a dictionary that calculates and stores the quartile thresholds
     journal_quartiles = {}
     for field in df['field'].unique():
-        df_fields = df[df['field'] == field]['SJR']
+        df_fields = df[df['field'] == field]['SJR'].dropna()
         percentile_boundaries = np.percentile(df_fields, [25, 50, 75])
         journal_quartiles[field] = percentile_boundaries
 
@@ -857,7 +888,7 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
 
     return data_dict
 
-def output_csv(data_dict: dict, all_user_data: pd.DataFrame, create_separate_csv: bool) -> None:
+def output_csv(data_dict: dict, all_user_data: pd.DataFrame, retain_all_columns: bool) -> None:
     """
     Write citation and metadata results to a CSV file.
 
@@ -867,7 +898,7 @@ def output_csv(data_dict: dict, all_user_data: pd.DataFrame, create_separate_csv
         Dictionary of all extracted data.
     all_user_data : pandas.DataFrame
         Original user CSV data.
-    create_separate_csv : bool
+    retain_all_columns : bool
         If True, output results into a new CSV file. Otherwise, append results to the original user data.
 
     Returns
@@ -883,7 +914,7 @@ def output_csv(data_dict: dict, all_user_data: pd.DataFrame, create_separate_csv
     data = pd.DataFrame(data_dict)
     data = data.T
 
-    if create_separate_csv:
+    if not retain_all_columns:
         #Output immediately if create separate csv
         data.to_csv("citation_counter_output.csv", header = True, index = False, encoding = 'utf-8')
     else:

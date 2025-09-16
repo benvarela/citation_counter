@@ -6,6 +6,8 @@
     "gender-api.com_apikey": "abcdef12345678...",
     "colname_title": "example_columnname1",
     "colname_DOI": "example_columnname2",
-    "metadata_in_separate_csv": "",
-    "year": "20XX"
+    "year": "20XX",
+    "retain_all_columns": "",
+    "no_cache": "",
+    "skip_gender": ""
 }

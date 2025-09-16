@@ -31,11 +31,13 @@ The user must input the following parameters, by creating a copy of 'config.exam
 | --------- | ----------- | ----------------- |
 | ```csv_path```  | The relative path to your csv containing the DOI and title of all journal articles. See [here](https://www.codecademy.com/resources/docs/general/file-paths) if unsure how to write a file path. | No |
 | ```elsevier_apikey```   | an API key for the Elsevier API. Obtain a new API key [here](https://dev.elsevier.com). | No |
-| ```gender-api.com_apikey``` | an API key for gender-api.com. Obtain a new API key [here](gender-api.com). | Yes* (see: Notes) |
+| ```gender-api.com_apikey``` | an API key for gender-api.com. Obtain a new API key [here](gender-api.com). | Yes, if skip_gender is "", meaning gender extraction will proceed |
 | ```colname_title``` | The exact column name that contains all the titles of your journal articles. | No |
 | ```colname_DOI``` | The exact column name that contains all of the DOIs of your journal articles. | No |
-| ```retain_all_columns``` | Output csv called 'citation_counter_output.csv' will contain extracted metadata columns in addition to the columns in the input csv if value is set to "True". Otherwise, only extracted metadata will be in the output csv and the value of this parameter may be left as "". | Yes |
 | ```year``` | The current year | No | 
+| ```retain_all_columns``` | Output csv called 'citation_counter_output.csv' will contain extracted metadata columns in addition to the columns in the input csv if value is set to "True". Otherwise, only extracted metadata will be in the output csv and the value of this parameter may be left as "". | Yes |
+| ```no_cache``` | Caching of outputs from previous requests will be disabled if the value is set to "True". Caching stores these outputs so that successful requests in the past do not need to be repeated if the script is called again. Leaving the entry as "" will enable caching. | Yes |
+| ```skip_gender``` | Inference of the genders of authors' first names not proceed if this parameter is set to "True". Otherwise, it will proceed if the value is left as "". | Yes |
 
 ### Notes
 * No API key is required for semantic scholar.
