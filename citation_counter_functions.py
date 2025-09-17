@@ -845,7 +845,48 @@ def get_openalex_data(data_dict: dict, no_cache: bool = False) -> dict:
 
 def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict:
     """
-    
+    Retrieve and enrich journal metadata from the SCImago Journal Rank (SJR) database.
+
+    This function downloads the most recent SCImago statistics, subsets them for the 
+    specified year minus one, computes quartile thresholds for each field, and attempts 
+    to enrich each journal entry in `data_dict` with its SJR, h-index, and quartile. 
+    Journals are matched using cleaned versions of their names across multiple sources 
+    (Elsevier, Semantic Scholar, OpenAlex).
+
+    Parameters
+    ----------
+    data_dict : dict
+        Dictionary of extracted metadata for a set of journals. Each entry must include
+        journal names from at least one source under keys such as 
+        ``'journal_elsevier'``, ``'journal_semanticscholar'``, or ``'journal_openalex'``.
+    year : int
+        The reference year for filtering SCImago data. The function uses statistics from
+        ``year - 1`` (e.g., if year=2024, the function loads 2023 data).
+    no_cache : bool, optional
+        If True, disables use of the local cache and forces retrieval of fresh data.
+        Default is False.
+
+    Returns
+    -------
+    dict
+        Updated `data_dict` where available journals have been enriched with:
+        
+        - ``SJR_openalex`` : float or None
+            SCImago Journal Rank (SJR) score.
+        - ``Hindex_openalex`` : float or None
+            Journal h-index.
+        - ``journalquartile_scimago`` : str or None
+            Quartile classification ('Q1', 'Q2', 'Q3', 'Q4') based on field-specific 
+            percentile thresholds.
+
+    Notes
+    -----
+    - Caching is handled via a ``ResultsCache`` instance. By default, data is cached
+      to disk under ``data/cache/scimago.pkl``.
+    - Journals are matched by cleaning their titles with 
+      ``reformatjournal_scimago`` before comparison.
+    - Quartiles are computed separately for each field, using the 25th, 50th, and 75th 
+      percentiles of SJR scores.
     """
     ## Import the most recent Scimago statistics as a pd.Dataframe, subset for only year - 1 data
     cache = ResultsCache("scimago", cache_disabled=no_cache)
