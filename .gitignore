@@ -7,3 +7,4 @@ dump.json
 /.idea
 *.csv
 config.json
+.vscode

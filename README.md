@@ -51,12 +51,6 @@ python citation_counter.py
 ```
 Updates will be printed to the terminal as the program runs. The results will be output in a csv called 'citation_counter_output.csv'.
 
-Then, if you could also like to run ```authors_gender.R```, which will append to 'citation_counter_output.csv' the probable genders of the first and last authors extracted by OpenAlex, run the following command.
-```
-Rscript authors_gender.R
-```
-This command requires that 'citation_counter_output.csv' has already been created by ```citation_counter.py```.
-
 ## Data extracted: ```citation_counter.py```
 The following table tabulates the set metadata output against the APIs used. Entries in the table are the column names used in the output csvs that contain the corresponding metadata from the corresponding API. 
 
@@ -81,7 +75,7 @@ The following table tabulates the set metadata output against the APIs used. Ent
 | Retracted | N/A | N/A | ```retracted_openalex``` | N/A |
 
 ### Source code
-Scimago data is accessed through an Pandas Dataframe updated yearly on the following https://github.com/Michael-E-Rose/SCImagoJournalRankIndicators?tab=readme-ov-file. 
+Scimago data is accessed using a modified version of the following publically available GitHub https://github.com/Michael-E-Rose/SCImagoJournalRankIndicators. 
 
 ### Notes
 * Author institutions is returned as a string ```"Institution1,type1,country1; Institution2..."```. Note the country and type institution is extractable in addition to the name of the institution
