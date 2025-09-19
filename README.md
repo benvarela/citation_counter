@@ -66,7 +66,6 @@ The following table tabulates the set metadata output against the APIs used. Ent
 | Author countries | N/A | N/A | ```authorcountries_openalex``` | N/A |
 | Author institutions | N/A | N/A | ```institutions_openalex``` | N/A |
 | Publishing location | ```journal_elsevier``` | ```journal_semanticscholar``` |```journal_openalex``` | N/A |
-| Publishing location SJR | N/A | N/A | N/A | ```SJR_scimago``` |
 | Publishing location H-index | N/A | N/A | N/A | ```Hindex_scimago``` |
 | Publishing location Quartile | N/A | N/A | N/A | ```journalquartile_scimago``` |
 | Published language | N/A | N/A | ```language_openalex``` | N/A |

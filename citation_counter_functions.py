@@ -303,13 +303,13 @@ def addjournalinfo_scimago(df: pd.DataFrame, data_dict: dict, i: int, journals: 
     Add Scimago journal metrics (SJR, H-index, and quartile) to a data dictionary entry.
 
     This function looks up a journal in a DataFrame containing Scimago metrics, extracts
-    the SJR, H-Index and Quartile, and stores the information in a dictionary entry corresponding to the
+    the H-Index and Quartile, and stores the information in a dictionary entry corresponding to the
     given index.
 
     Parameters
     ----------
     df : pd.DataFrame
-        DataFrame containing Scimago journal data with columns 'Title', 'SJR', 'h-index', and 'field'.
+        DataFrame containing Scimago journal data with columns 'Title' and 'h-index'.
     data_dict : dict
         Dictionary of article or journal entries where metrics will be added.
     i : int
@@ -323,8 +323,7 @@ def addjournalinfo_scimago(df: pd.DataFrame, data_dict: dict, i: int, journals: 
     -------
     data_dict : dict
         The updated dictionary with added fields:
-        - 'SJR_openalex': SJR value or None
-        - 'Hindex_openalex': H-index value or None
+        - 'Hindex_scimago': H-index value or None
         - 'journalquartile_scimago': Quartile string ('Q1'-'Q4') if SJR exists
 
     Notes
@@ -338,7 +337,6 @@ def addjournalinfo_scimago(df: pd.DataFrame, data_dict: dict, i: int, journals: 
     dfjournalname = journals[journal]
 
     ## Extraction of the SJR and H-index if a journal name match is found
-    data_dict[i]['SJR_scimago'] = manageNan_scimago(df[df['Title'] == dfjournalname]['SJR'])
     data_dict[i]['Hindex_scimago'] = manageNan_scimago(df[df['Title'] == dfjournalname]['H index'])
     data_dict[i]['journalquartile_scimago'] = manageNan_scimago(df[df['Title'] == dfjournalname]['SJR Best Quartile'])
 
@@ -500,7 +498,6 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, 
                         "citationnormalisedpercentile_openalex": None,
                         "workscitedcount_openalex": None,
                         "retracted_openalex": None,
-                        "SJR_scimago": None,
                         "Hindex_scimago": None,
                         "journalquartile_scimago": None
                        }
@@ -857,6 +854,16 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
             Quartile classification ('Q1', 'Q2', 'Q3', 'Q4') based on field-specific 
             percentile thresholds.
     """
+    # Initialisation of variables for progress updates and cache
+    #cache = ResultsCache("openalex", cache_disabled=no_cache)
+    #c_hits = 0
+    total = len(data_dict)
+    proportion = 0.1
+
+    print("** Extraction of data with Scimago API is now beginning **")
+    print("A message will be printed below every time a 10% portion of the "
+          "total papers to analyse is completed.")
+    
     ## Import the most recent Scimago statistics as a pd.Dataframe
     df = c.collect_all(year - 1)
 
@@ -879,6 +886,8 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
             data_dict = addjournalinfo_scimago(df, data_dict, i, journals, oa_journal)
         elif ss_journal in journals.keys():
             data_dict = addjournalinfo_scimago(df, data_dict, i, journals, ss_journal)
+
+        proportion = print_progress(i, proportion, total, 'Scimago')
 
     return data_dict
 
