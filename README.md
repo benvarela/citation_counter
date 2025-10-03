@@ -66,7 +66,6 @@ The following table tabulates the set metadata output against the APIs used. Ent
 | Author countries | N/A | N/A | ```authorcountries_openalex``` | N/A |
 | Author institutions | N/A | N/A | ```institutions_openalex``` | N/A |
 | Publishing location | ```journal_elsevier``` | ```journal_semanticscholar``` |```journal_openalex``` | N/A |
-| Publishing location SJR | N/A | N/A | N/A | ```SJR_scimago``` |
 | Publishing location H-index | N/A | N/A | N/A | ```Hindex_scimago``` |
 | Publishing location Quartile | N/A | N/A | N/A | ```journalquartile_scimago``` |
 | Published language | N/A | N/A | ```language_openalex``` | N/A |
@@ -111,7 +110,9 @@ Where the title or DOI for a paper is not provided, data may no longer be able t
 | Elsevier | Title, DOI | 
 | Semantic Scholar | DOI |
 | OpenAlex | DOI |
-The Scimago API is dependent on journal metadata being extracted from any of the above three APIs.
+| Scimago | *See below |
+
+*The Scimago API is dependent on journal metadata being extracted from any of the above three APIs.
 
 ### Handling of missing metadata
 Where metadata is missing, csv entries will be left blank, with the exception of Authors. Missing authors will be written as a string ```'X.,X.'```, as ```authors_gender.R``` recognises this as a missing entry. Furthermore, where author first names are missing, they are replaced witih the string ```'X.'```.

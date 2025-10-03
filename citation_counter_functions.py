@@ -382,8 +382,7 @@ def collectyear_scimago(year):
 
     # Read CSV from response, take the relevant columns, clean SJR 
     df = pd.read_csv(StringIO(response.text), delimiter=';', dtype={5: str, 'Issn': str, 8: str})
-    df = df[['Title', "SJR", "SJR Best Quartile", "H index"]]
-    df['SJR'] = df['SJR'].str.replace(',', '.').astype('float')
+    df = df[['Title', "SJR Best Quartile", "H index"]]
 
     return df
 
@@ -414,7 +413,7 @@ def collectall_scimago(end_year, start_year = 1999, delay=1) -> pd.DataFrame:
         - 'H index' : int
     """
     years = range(end_year, start_year, -1)
-    all_scimago = pd.DataFrame(columns=["Title", "SJR", "SJR Best Quartile", "H index"])
+    all_scimago = pd.DataFrame(columns=["Title", "SJR Best Quartile", "H index"])
 
     for year in years:
         # Add yearly data to the dictionary, only adding if Title of source has not yet been included in the dictionary
