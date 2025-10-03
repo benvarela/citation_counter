@@ -75,7 +75,7 @@ The following table tabulates the set metadata output against the APIs used. Ent
 | Retracted | N/A | N/A | ```retracted_openalex``` | N/A |
 
 ### Source code
-Scimago data is accessed using a modified version of the following publically available GitHub https://github.com/Michael-E-Rose/SCImagoJournalRankIndicators. 
+Scimago data is accessed using a modified version of the following publically available GitHub https://github.com/Michael-E-Rose/SCImagoJournalRankIndicators. The functions called collectyear_scimago() and collectall_scimago() are derived from compile.py in this repository.
 
 ### Notes
 * Author institutions is returned as a string ```"Institution1,type1,country1; Institution2..."```. Note the country and type institution is extractable in addition to the name of the institution

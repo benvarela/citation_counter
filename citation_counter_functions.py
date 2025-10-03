@@ -5,13 +5,13 @@ Functions required for citation_counter.py. See function descriptor for informat
 #imports
 import json
 from typing import Optional
-
 import httpx
 import subprocess
 import shutil
 import pandas as pd
-import string
-import numpy as np
+import time
+from io import StringIO
+import requests
 from pathlib import Path
 from elsapy.elsclient import ElsClient
 from elsapy.elssearch import ElsSearch
@@ -19,8 +19,6 @@ from semanticscholar import SemanticScholar
 import pyalex as pa
 from semanticscholar.Paper import Paper
 from semanticscholar.SemanticScholarException import ObjectNotFoundException
-from SCImagoJournalRankIndicators import compile as c
-
 from results_cache import ResultsCache
 
 ## Functions used within main functions, called in citation_counter.py
@@ -343,6 +341,94 @@ def addjournalinfo_scimago(df: pd.DataFrame, data_dict: dict, i: int, journals: 
     data_dict[i]['journalquartile_scimago'] = manageNan_scimago(df[df['Title'] == dfjournalname]['SJR Best Quartile'])
 
     return data_dict
+
+def collectyear_scimago(year):
+    """
+    Fetch SCImago Journal Rank (SJR) data for a specific year.
+
+    Parameters
+    ----------
+    year : int
+        Year for which SCImago Journal Rank data is requested.
+
+    Returns
+    -------
+    pandas.DataFrame or None
+        DataFrame containing columns:
+        - 'Title' : str
+            Journal title.
+        - 'SJR' : float
+            SCImago Journal Rank value.
+        - 'SJR Best Quartile' : str
+            Best quartile classification (Q1–Q4).
+        - 'H index' : int
+            Journal's H-index.
+        Returns None if data could not be downloaded or parsed.
+    """
+    # Access the csv data from a particular year
+    url = f"https://www.scimagojr.com/journalrank.php?year={year}&out=xls"
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                      "AppleWebKit/537.36 (KHTML, like Gecko) "
+                      "Chrome/120.0.0.0 Safari/537.36"
+    }
+
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()
+    except requests.RequestException as e:
+        print(f"Failed to download data for year {year}: {e}")
+        return None
+
+    # Read CSV from response, take the relevant columns, clean SJR 
+    df = pd.read_csv(StringIO(response.text), delimiter=';', dtype={5: str, 'Issn': str, 8: str})
+    df = df[['Title', "SJR", "SJR Best Quartile", "H index"]]
+    df['SJR'] = df['SJR'].str.replace(',', '.').astype('float')
+
+    return df
+
+def collectall_scimago(end_year, start_year = 1999, delay=1) -> pd.DataFrame:
+    """
+    Fetch and aggregate SCImago Journal Rank (SJR) data across multiple years.
+
+    Parameters
+    ----------
+    end_year : int
+        The latest year to include in the dataset (inclusive).
+    start_year : int, optional
+        The earliest year to include in the dataset (exclusive).
+        Default is 1999.
+    delay : int or float, optional
+        Delay in seconds between successive requests to avoid overloading the server.
+        Default is 1.
+
+    Returns
+    -------
+    pandas.DataFrame
+        Concatenated DataFrame of SJR data for all years in the specified range.
+        If a journal appears in multiple years, only the most recent entry is kept.
+        Columns include:
+        - 'Title' : str
+        - 'SJR' : float
+        - 'SJR Best Quartile' : str
+        - 'H index' : int
+    """
+    years = range(end_year, start_year, -1)
+    all_scimago = pd.DataFrame(columns=["Title", "SJR", "SJR Best Quartile", "H index"])
+
+    for year in years:
+        # Add yearly data to the dictionary, only adding if Title of source has not yet been included in the dictionary
+        temp = collectyear_scimago(year)
+        temp = temp[~temp['Title'].isin(all_scimago['Title'])]
+        if all_scimago.empty:
+            all_scimago = temp
+        else:
+            all_scimago = pd.concat([all_scimago, temp], ignore_index=True)
+
+        # Pause
+        time.sleep(delay)
+
+    return all_scimago
 
 ## Main functions
 
@@ -857,8 +943,21 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
             Quartile classification ('Q1', 'Q2', 'Q3', 'Q4') based on field-specific 
             percentile thresholds.
     """
+    # Initialisation of variables for progress updates and cache
+    #cache = ResultsCache("openalex", cache_disabled=no_cache)
+    #c_hits = 0
+    total = len(data_dict)
+    proportion = 0.1
+
+    ## User communication
+    print("** Extraction of data with Scimago API is now beginning **")
+    print("A message will be printed below every time a 10% portion of the "
+          "total papers to analyse is completed.")
+
     ## Import the most recent Scimago statistics as a pd.Dataframe
-    df = c.collect_all(year - 1)
+    print("Pulling Scimago data from online, collating into a dataframe...")
+    df = collectall_scimago(year - 1)
+    print("Scimago data retrieved!")
 
     ## Create a list of the stored journals. Clean strings are the keys, values are the original strings for lookup
     journals = {}
@@ -879,6 +978,8 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
             data_dict = addjournalinfo_scimago(df, data_dict, i, journals, oa_journal)
         elif ss_journal in journals.keys():
             data_dict = addjournalinfo_scimago(df, data_dict, i, journals, ss_journal)
+
+        proportion = print_progress(i, proportion, total, 'OpenAlex')
 
     return data_dict
 
