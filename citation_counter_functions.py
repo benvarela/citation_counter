@@ -380,9 +380,9 @@ def collectyear_scimago(year):
         print(f"Failed to download data for year {year}: {e}")
         return None
 
-    # Read CSV from response, take the relevant columns, clean SJR 
+    # Read CSV from response, take all columns
     df = pd.read_csv(StringIO(response.text), delimiter=';', dtype={5: str, 'Issn': str, 8: str})
-    df = df[['Title', "SJR Best Quartile", "H index"]]
+    # df = df[['Title', "SJR Best Quartile", "H index"]]
 
     return df
 
