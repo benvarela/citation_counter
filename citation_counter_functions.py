@@ -943,8 +943,7 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
             percentile thresholds.
     """
     # Initialisation of variables for progress updates and cache
-    #cache = ResultsCache("openalex", cache_disabled=no_cache)
-    #c_hits = 0
+    cache = ResultsCache("scimago", cache_disabled=no_cache)
     total = len(data_dict)
     proportion = 0.1
 
@@ -954,9 +953,17 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
           "total papers to analyse is completed.")
 
     ## Import the most recent Scimago statistics as a pd.Dataframe
-    print("Pulling Scimago data from online, collating into a dataframe...")
-    df = collectall_scimago(year - 1)
-    print("Scimago data retrieved!")
+    # Check cache first
+    scimago_year = year - 1
+    if cache.has(scimago_year):
+        df = cache.get(scimago_year)
+        print(f"Scimago data for {scimago_year} retrieved from cache!")
+    else:
+        print("Pulling Scimago data from online, collating into a dataframe...")
+        df = collectall_scimago(scimago_year)
+        cache.set(scimago_year, df)
+        cache.save_to_disk()
+        print("Scimago data retrieved!")
 
     ## Create a list of the stored journals. Clean strings are the keys, values are the original strings for lookup
     journals = {}
