@@ -261,6 +261,7 @@ def reformatjournal_scimago(journal: str) -> str:
     """
     # Return None if None was passed
     if journal is None:
+        print("Journal: <NONE>")
         return None
     # Else, remove all punctuation and convert to lower case
     else:
@@ -268,6 +269,7 @@ def reformatjournal_scimago(journal: str) -> str:
         for letter in journal:
             if letter.isalnum():
                 clean += letter
+        print("Journal: '" + clean.lower() + "' (Original: '" + journal + "')")
         return clean.lower()
 
 def manageNan_scimago(value: pd.Series):
@@ -339,7 +341,7 @@ def addjournalinfo_scimago(df: pd.DataFrame, data_dict: dict, i: int, journals: 
     data_dict[i]['SJR_scimago'] = manageNan_scimago(df[df['Title'] == dfjournalname]['SJR'])
     data_dict[i]['Hindex_scimago'] = manageNan_scimago(df[df['Title'] == dfjournalname]['H index'])
     data_dict[i]['journalquartile_scimago'] = manageNan_scimago(df[df['Title'] == dfjournalname]['SJR Best Quartile'])
-
+    print("MATCH FOUND: SJR " + str(data_dict[i]['SJR_scimago']) + " Hindex " + str(data_dict[i]['Hindex_scimago']) + " journalquartile " + str(data_dict[i]['journalquartile_scimago']))
     return data_dict
 
 def collectyear_scimago(year):
@@ -381,8 +383,16 @@ def collectyear_scimago(year):
         return None
 
     # Read CSV from response, take all columns
-    df = pd.read_csv(StringIO(response.text), delimiter=';', dtype={5: str, 'Issn': str, 8: str})
+    df = pd.read_csv(StringIO(response.text), delimiter=';', decimal=',', dtype={5: str, 'Issn': str, 8: str})
     # df = df[['Title', "SJR Best Quartile", "H index"]]
+
+    # Convert European decimal format (comma) to standard format (period) for numeric columns
+    if 'SJR' in df.columns:
+        df['SJR'] = df['SJR'].astype(str).str.replace(',', '.', regex=False)
+        df['SJR'] = pd.to_numeric(df['SJR'], errors='coerce')
+
+    if 'H index' in df.columns:
+        df['H index'] = pd.to_numeric(df['H index'], errors='coerce')
 
     return df
 
@@ -524,15 +534,9 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, 
     try:
         csv_file = Path(csv_path)
 
-        # Try with default encoding first
-        encode = "unicode_escape"
+        # Try with utf-8-sig encoding (handles BOM automatically)
+        encode = "utf-8-sig"
         full_dataframe = pd.read_csv(csv_file, encoding=encode)
-
-        # Handle UTF-8 BOM in first column
-        if full_dataframe.columns[0] == "ï»¿":
-            encode = "utf-8"
-            print("Found a file with UTF-8 BOM. Reloading CSV with UTF-8 encoding.")
-            full_dataframe = pd.read_csv(csv_file, encoding=encode)
 
         # Handle case where headers are not in first row
         header_row = 1
@@ -967,11 +971,14 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
 
     ## Create a list of the stored journals. Clean strings are the keys, values are the original strings for lookup
     journals = {}
+    print("ALL JOURNAL KEYS")
     for journal in df['Title']:
         journals[reformatjournal_scimago(journal)] = journal
 
+    print("SEARCH FOR MATCHING JOURNAL KEYS")
     ## For each journal/source attempt to review the SJR and h-index
     for i in range(len(data_dict)):
+        print("NEW KEY")
         # Extract and standardise the associated journal
         el_journal = reformatjournal_scimago(data_dict[i]['journal_elsevier'])
         ss_journal = reformatjournal_scimago(data_dict[i]['journal_semanticscholar'])
@@ -984,7 +991,8 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
             data_dict = addjournalinfo_scimago(df, data_dict, i, journals, oa_journal)
         elif ss_journal in journals.keys():
             data_dict = addjournalinfo_scimago(df, data_dict, i, journals, ss_journal)
-
+        else:
+            print("NO MATCH FOUND")
         proportion = print_progress(i, proportion, total, 'OpenAlex')
 
     return data_dict
@@ -1017,12 +1025,12 @@ def output_csv(data_dict: dict, all_user_data: pd.DataFrame, retain_all_columns:
 
     if not retain_all_columns:
         #Output immediately if create separate csv
-        data.to_csv("citation_counter_output.csv", header = True, index = False, encoding = 'utf-8')
+        data.to_csv("citation_counter_output.csv", header = True, index = False, encoding = 'utf-8-sig')
     else:
         #Otherwise, add citation data columns to user dataframe and output this
         for col in data.columns:
             all_user_data[col] = data[col]
-        all_user_data.to_csv("citation_counter_output.csv", header = True, index = False, encoding = 'utf-8')
+        all_user_data.to_csv("citation_counter_output.csv", header = True, index = False, encoding = 'utf-8-sig')
 
     # Communicate to user successful output of the csv
     print("** 'citation_counter_output.csv' has been successfully output! **\n")
