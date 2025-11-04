@@ -212,6 +212,34 @@ suppressWarnings({
   article.data$last_prob_male    <- gender_probs[, "last_prob_m"]
   article.data$last_prob_female  <- gender_probs[, "last_prob_w"]
 
+  # Add gender threshold columns (70% threshold)
+  article.data$first_gender_70_thresh <- sapply(1:nrow(article.data), function(i) {
+    if (is.na(article.data$first_prob_male[i]) || is.na(article.data$first_prob_female[i])) {
+      return("U")
+    } else if (article.data$first_prob_male[i] >= 0.7 && article.data$first_prob_female[i] < 0.7) {
+      return("M")
+    } else if (article.data$first_prob_female[i] >= 0.7 && article.data$first_prob_male[i] < 0.7) {
+      return("F")
+    } else {
+      return("U")
+    }
+  })
+
+  article.data$last_gender_70_thresh <- sapply(1:nrow(article.data), function(i) {
+    if (is.na(article.data$last_prob_male[i]) || is.na(article.data$last_prob_female[i])) {
+      return("U")
+    } else if (article.data$last_prob_male[i] >= 0.7 && article.data$last_prob_female[i] < 0.7) {
+      return("M")
+    } else if (article.data$last_prob_female[i] >= 0.7 && article.data$last_prob_male[i] < 0.7) {
+      return("F")
+    } else {
+      return("U")
+    }
+  })
+
+  article.data$combined_gender_70_thresh <- paste0(article.data$first_gender_70_thresh,
+                                                    article.data$last_gender_70_thresh)
+
 # Restore original column name
   names(article.data)[names(article.data) == "AF"] <- "firstlastauthor_openalex"
 
