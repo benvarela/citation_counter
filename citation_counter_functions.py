@@ -506,14 +506,14 @@ def readjson() -> dict:
 
     return data
 
-def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, pd.DataFrame]:
+def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, pd.DataFrame, str]:
     """
-    Read a CSV file and extract metadata, DOIs, and titles.
+    Read a CSV or XLSX file and extract metadata, DOIs, and titles.
 
     Parameters
     ----------
     csv_path : str
-        Path to the CSV file.
+        Path to the CSV or XLSX file.
     colname_title : str
         Column name containing paper titles.
     colname_DOI : str
@@ -521,38 +521,56 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, 
 
     Returns
     -------
-    tuple of (dict, pandas.DataFrame)
+    tuple of (dict, pandas.DataFrame, str)
         - dict : Dictionary containing DOI, title, and metadata fields for each paper.
-        - DataFrame : The full user-provided CSV loaded into a pandas DataFrame.
+        - DataFrame : The full user-provided file loaded into a pandas DataFrame.
+        - str : File extension ('csv' or 'xlsx').
 
     Raises
     ------
     Exception
-        If the CSV file cannot be read or the specified columns are not found.
+        If the file cannot be read or the specified columns are not found.
     """
-    ## Extract pd.Series object of the Titles and DOIs of all papers in the user provided csv
+    ## Extract pd.Series object of the Titles and DOIs of all papers in the user provided file
     try:
         csv_file = Path(csv_path)
+        file_extension = csv_file.suffix.lower()
 
-        # Try with utf-8-sig encoding (handles BOM automatically)
-        encode = "utf-8-sig"
-        full_dataframe = pd.read_csv(csv_file, encoding=encode)
+        # Validate file extension
+        if file_extension not in ['.csv', '.xlsx']:
+            raise ValueError(f"Unsupported file format: {file_extension}. Only .csv and .xlsx are supported.")
 
-        # Handle case where headers are not in first row
-        header_row = 1
-        if colname_DOI not in full_dataframe.columns or colname_title not in full_dataframe.columns:
-            print("Headers not found in first row, retrying with skiprows=1.")
-            full_dataframe = pd.read_csv(csv_file, encoding=encode, skiprows=1)
-            header_row = 2
-            
+        # Read file based on extension
+        if file_extension == '.csv':
+            # Try with utf-8-sig encoding (handles BOM automatically)
+            encode = "utf-8-sig"
+            full_dataframe = pd.read_csv(csv_file, encoding=encode)
+
+            # Handle case where headers are not in first row
+            header_row = 1
+            if colname_DOI not in full_dataframe.columns or colname_title not in full_dataframe.columns:
+                print("Headers not found in first row, retrying with skiprows=1.")
+                full_dataframe = pd.read_csv(csv_file, encoding=encode, skiprows=1)
+                header_row = 2
+        else:  # .xlsx
+            full_dataframe = pd.read_excel(csv_file, engine='openpyxl')
+
+            # Handle case where headers are not in first row
+            header_row = 1
+            if colname_DOI not in full_dataframe.columns or colname_title not in full_dataframe.columns:
+                print("Headers not found in first row, retrying with skiprows=1.")
+                full_dataframe = pd.read_excel(csv_file, engine='openpyxl', skiprows=1)
+                header_row = 2
+
         DOIs = full_dataframe[colname_DOI]
         Titles = full_dataframe[colname_title]
     except Exception as e:
-        print("ERROR: Something went wrong when interacting with your csv. Please ensure your csv path is correct, and that you've correctly entered your title and DOI column headers. These headers must also be in the first or second row of your csv. Here's more information to help figure out what went wrong:\n")
+        print("ERROR: Something went wrong when interacting with your file. Please ensure your file path is correct, and that you've correctly entered your title and DOI column headers. These headers must also be in the first or second row of your file. Here's more information to help figure out what went wrong:\n")
         raise
 
     ## Communcate to user successful extraction
-    print("** Successfully read Title and DOI information from your provided CSV **\n")
+    file_type_display = "CSV" if file_extension == '.csv' else "Excel"
+    print(f"** Successfully read Title and DOI information from your provided {file_type_display} file **\n")
 
     ## Reformat the pd.Series object to be contained within a dictionary
     # Convert missing values to empty strings
@@ -593,8 +611,8 @@ def readcsv(csv_path: str, colname_title: str, colname_DOI: str) -> tuple[dict, 
                         "Hindex_scimago": None,
                         "journalquartile_scimago": None
                        }
-        
-    return data_dict, full_dataframe
+
+    return data_dict, full_dataframe, file_extension.lstrip('.')
 
 def get_elsevier_data(elsevier_apikey: str, data_dict: dict, no_cache: bool = False) -> dict:
     """
@@ -997,18 +1015,20 @@ def get_scimago_data(data_dict: dict, year: int, no_cache: bool = False) -> dict
 
     return data_dict
 
-def output_csv(data_dict: dict, all_user_data: pd.DataFrame, retain_all_columns: bool) -> None:
+def output_csv(data_dict: dict, all_user_data: pd.DataFrame, retain_all_columns: bool, file_extension: str = 'csv') -> None:
     """
-    Write citation and metadata results to a CSV file.
+    Write citation and metadata results to a CSV or XLSX file.
 
     Parameters
     ----------
     data_dict : dict
         Dictionary of all extracted data.
     all_user_data : pandas.DataFrame
-        Original user CSV data.
+        Original user data.
     retain_all_columns : bool
-        If True, output results into a new CSV file. Otherwise, append results to the original user data.
+        If True, append results to the original user data. Otherwise, output results into a new file.
+    file_extension : str, optional
+        File extension ('csv' or 'xlsx'). Default is 'csv'.
 
     Returns
     -------
@@ -1016,24 +1036,33 @@ def output_csv(data_dict: dict, all_user_data: pd.DataFrame, retain_all_columns:
 
     Notes
     -----
-    The output file is always saved as `citation_counter_output.csv` 
-    in the current working directory.
+    The output file is saved as `citation_counter_output.csv` or `citation_counter_output.xlsx`
+    in the current working directory, depending on the file_extension parameter.
     """
     #Instantiate citation data as data frame
     data = pd.DataFrame(data_dict)
     data = data.T
 
+    # Determine output filename based on file extension
+    output_filename = f"citation_counter_output.{file_extension}"
+
     if not retain_all_columns:
-        #Output immediately if create separate csv
-        data.to_csv("citation_counter_output.csv", header = True, index = False, encoding = 'utf-8-sig')
+        #Output immediately if create separate file
+        if file_extension == 'csv':
+            data.to_csv(output_filename, header=True, index=False, encoding='utf-8-sig')
+        else:  # xlsx
+            data.to_excel(output_filename, header=True, index=False, engine='openpyxl')
     else:
         #Otherwise, add citation data columns to user dataframe and output this
         for col in data.columns:
             all_user_data[col] = data[col]
-        all_user_data.to_csv("citation_counter_output.csv", header = True, index = False, encoding = 'utf-8-sig')
+        if file_extension == 'csv':
+            all_user_data.to_csv(output_filename, header=True, index=False, encoding='utf-8-sig')
+        else:  # xlsx
+            all_user_data.to_excel(output_filename, header=True, index=False, engine='openpyxl')
 
-    # Communicate to user successful output of the csv
-    print("** 'citation_counter_output.csv' has been successfully output! **\n")
+    # Communicate to user successful output of the file
+    print(f"** '{output_filename}' has been successfully output! **\n")
 
     return None
 
