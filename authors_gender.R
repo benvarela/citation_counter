@@ -38,15 +38,57 @@ save_gender_cache <- function(cache_data) {
 suppressWarnings({
 
   cat("*** Starting extraction of first and last author genders! ***\n There are no progress messages printed during this process, although a message will be printed upon completion\n")
-  
+
   # Load gender-api.com key
   json_data <- fromJSON(file = "config.json")
   gender_api_key <- json_data[["gender-api.com_apikey"]]
 
-  # Read CSV as UTF-8
-  article.data <- read.csv("citation_counter_output.csv", 
-                           stringsAsFactors = FALSE, 
-                           fileEncoding = "UTF-8")
+  # Detect output file format
+  csv_file <- "citation_counter_output.csv"
+  xlsx_file <- "citation_counter_output.xlsx"
+
+  if (file.exists(xlsx_file)) {
+    file_format <- "xlsx"
+    input_file <- xlsx_file
+  } else if (file.exists(csv_file)) {
+    file_format <- "csv"
+    input_file <- csv_file
+  } else {
+    stop("ERROR: Neither citation_counter_output.csv nor citation_counter_output.xlsx found!")
+  }
+
+  cat("Detected file format:", file_format, "\n")
+
+  # Read file based on format
+  if (file_format == "xlsx") {
+    # Check if openxlsx is installed, install if needed
+    if (!requireNamespace("openxlsx", quietly = TRUE)) {
+      cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
+      cat("openxlsx package not found. Installing now...\n")
+      cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
+
+      tryCatch({
+        install.packages("openxlsx", repos = "https://cloud.r-project.org/")
+        cat("openxlsx package installed successfully!\n\n")
+      }, error = function(e) {
+        cat("\n", paste(rep("=", 70), collapse = ""), "\n", sep = "")
+        cat("ERROR: Failed to automatically install openxlsx package\n")
+        cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
+        cat("Please install manually by running in R:\n")
+        cat("    install.packages('openxlsx')\n\n")
+        cat("Error details:", conditionMessage(e), "\n")
+        cat(paste(rep("=", 70), collapse = ""), "\n\n", sep = "")
+        stop("openxlsx package installation failed")
+      })
+    }
+    library(openxlsx)
+    article.data <- read.xlsx(input_file)
+  } else {
+    # Read CSV as UTF-8
+    article.data <- read.csv(input_file,
+                             stringsAsFactors = FALSE,
+                             fileEncoding = "UTF-8")
+  }
 
   # Flatten all non-ASCII characters in the author column to ASCII
   article.data$firstlastauthor_openalex <- stri_trans_general(article.data$firstlastauthor_openalex, "Latin-ASCII")
@@ -173,8 +215,12 @@ suppressWarnings({
 # Restore original column name
   names(article.data)[names(article.data) == "AF"] <- "firstlastauthor_openalex"
 
-  # Write to CSV
-  write.csv(article.data, "citation_counter_output.csv", row.names = FALSE)
-  
-  cat("*** Extraction of first and last author genders appended to citation_counter_output.csv! ***\n")
+  # Write to file in the same format as input
+  if (file_format == "xlsx") {
+    write.xlsx(article.data, input_file, rowNames = FALSE)
+    cat("*** Extraction of first and last author genders appended to citation_counter_output.xlsx! ***\n")
+  } else {
+    write.csv(article.data, input_file, row.names = FALSE)
+    cat("*** Extraction of first and last author genders appended to citation_counter_output.csv! ***\n")
+  }
 })
