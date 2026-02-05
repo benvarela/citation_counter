@@ -251,7 +251,13 @@ suppressWarnings({
   failed_401_names <- character(0)
   failed_400_names <- character(0)
 
+  # Progress tracking
+  total_to_query <- length(remaining)
+  start_time <- Sys.time()
+  processed_count <- 0
+
   for (i in remaining) {
+    processed_count <- processed_count + 1
     this_name <- namegends$name[i]
     json_file <- paste0("https://gender-api.com/get?name=", this_name, "&key=", gender_api_key)
 
@@ -259,20 +265,33 @@ suppressWarnings({
     api_result <- tryCatch({
       fromJSON(file = json_file)
     }, error = function(e) {
-      # Check if error message indicates specific HTTP status codes
+      # Network/HTTP errors - log and skip
       error_msg <- conditionMessage(e)
-      if (grepl("401", error_msg, ignore.case = TRUE)) {
-        return(list(error = "401"))
-      } else if (grepl("400", error_msg, ignore.case = TRUE)) {
-        return(list(error = "400"))
-      } else {
-        # Other errors - log and skip
-        cat("Warning: API error for name '", this_name, "': ", error_msg, "\n", sep = "")
-        return(list(error = "other"))
-      }
+      cat("Warning: API error for name '", this_name, "': ", error_msg, "\n", sep = "")
+      return(list(error = "other"))
     })
 
-    # Handle 401 errors (API limit exceeded)
+    # Check for API errors in the JSON response (errno field)
+    if (!is.null(api_result$errno)) {
+      errno <- api_result$errno
+      errmsg <- if (!is.null(api_result$errmsg)) api_result$errmsg else "unknown error"
+
+      # errno 30 = limit reached
+      if (errno == 30) {
+        api_result$error <- "401"
+      }
+      # errno 20-29 are typically bad request / invalid input errors
+      else if (errno >= 20 && errno < 30) {
+        api_result$error <- "400"
+      }
+      # Other errors
+      else {
+        cat("Warning: API error ", errno, " for name '", this_name, "': ", errmsg, "\n", sep = "")
+        api_result$error <- "other"
+      }
+    }
+
+    # Handle limit exceeded (errno 30)
     if (!is.null(api_result$error) && api_result$error == "401") {
       consecutive_401_count <- consecutive_401_count + 1
       failed_401_names <- c(failed_401_names, this_name)
@@ -349,6 +368,34 @@ suppressWarnings({
 
     api_call_count <- api_call_count + 1
 
+    # Calculate and display progress every 5 successful API calls
+    if (api_call_count %% 5 == 0) {
+      elapsed_time <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
+      rate <- api_call_count / elapsed_time
+
+      # Determine display format (it/s or s/it)
+      if (rate >= 1) {
+        rate_str <- sprintf("%.2f it/s", rate)
+      } else {
+        rate_str <- sprintf("%.2f s/it", 1 / rate)
+      }
+
+      # Calculate ETA
+      remaining_items <- total_to_query - processed_count
+      eta_seconds <- remaining_items / rate
+      eta_str <- if (eta_seconds < 60) {
+        sprintf("%.0fs", eta_seconds)
+      } else if (eta_seconds < 3600) {
+        sprintf("%.0fm %.0fs", floor(eta_seconds / 60), eta_seconds %% 60)
+      } else {
+        sprintf("%.0fh %.0fm", floor(eta_seconds / 3600), (eta_seconds %% 3600) / 60)
+      }
+
+      cat("Progress: ", processed_count, "/", total_to_query,
+          " (", sprintf("%.1f%%", 100 * processed_count / total_to_query),
+          ") | ", rate_str, " | ETA: ", eta_str, "\n", sep = "")
+    }
+
     # Save cache every 10 API calls
     if (api_call_count %% 10 == 0) {
       # Merge new lookups into existing cache
@@ -358,6 +405,19 @@ suppressWarnings({
     }
 
     Sys.sleep(round(runif(1, 1, 3), 0))
+  }
+
+  # Display final progress summary
+  if (api_call_count > 0) {
+    total_elapsed <- as.numeric(difftime(Sys.time(), start_time, units = "secs"))
+    avg_rate <- api_call_count / total_elapsed
+    rate_str <- if (avg_rate >= 1) {
+      sprintf("%.2f it/s", avg_rate)
+    } else {
+      sprintf("%.2f s/it", 1 / avg_rate)
+    }
+    cat("Completed ", api_call_count, " API calls in ",
+        sprintf("%.1fs", total_elapsed), " (", rate_str, ")\n", sep = "")
   }
 
   # After loop completes, check if any errors occurred and exit with appropriate message
