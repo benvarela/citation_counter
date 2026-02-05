@@ -124,9 +124,10 @@ suppressWarnings({
   # Input: parquet file from command-line argument
   args <- commandArgs(trailingOnly = TRUE)
   if (length(args) < 1) {
-    stop("Usage: Rscript authors_extended_gender.R <input.parquet>")
+    stop("Usage: Rscript authors_extended_gender.R <input.parquet> [include_all]")
   }
   input_path <- args[1]
+  include_all <- length(args) >= 2 && tolower(args[2]) == "include_all"
 
   if (!file.exists(input_path)) {
     stop(paste("Input file not found:", input_path))
@@ -148,6 +149,17 @@ suppressWarnings({
     tokens <- strsplit(trimws(name), "\\s+")[[1]]
     trimws(tolower(tokens[1]))
   }, USE.NAMES = FALSE)
+
+  # By default, only look up first and last authors
+  if (!include_all) {
+    is_first <- if ("first_author" %in% colnames(author_data)) author_data$first_author == TRUE else FALSE
+    is_last  <- if ("last_author" %in% colnames(author_data))  author_data$last_author == TRUE  else FALSE
+    keep <- is_first | is_last
+    cat("Filtering to first/last authors:", sum(keep), "of", nrow(author_data), "rows\n")
+    first_names[!keep] <- NA_character_
+  } else {
+    cat("include_all: looking up all", nrow(author_data), "authors\n")
+  }
 
   # Load gender-api.com key
   json_data <- fromJSON(file = "config.json")
@@ -175,13 +187,25 @@ suppressWarnings({
   namegends$prob.m[initials] <- -1
   namegends$prob.w[initials] <- -1
 
-  # Tier 1: Fill from cache
+  # Tier 1: Fill from cache (but skip -1, -1 entries to allow re-querying)
   if (nrow(cached_genders) > 0) {
     cached_matches <- match(namegends$name, cached_genders$name)
     cached_idx <- which(!is.na(cached_matches))
     if (length(cached_idx) > 0) {
-      namegends$prob.m[cached_idx] <- cached_genders$prob.m[cached_matches[cached_idx]]
-      namegends$prob.w[cached_idx] <- cached_genders$prob.w[cached_matches[cached_idx]]
+      # Only use cache entries that are not -1, -1 (which may indicate previous API errors)
+      for (idx in cached_idx) {
+        cache_row <- cached_matches[idx]
+        cached_prob_m <- cached_genders$prob.m[cache_row]
+        cached_prob_w <- cached_genders$prob.w[cache_row]
+
+        # Skip if both values are -1 (previous error/unknown, should be re-queried)
+        if (cached_prob_m == -1 && cached_prob_w == -1) {
+          next
+        }
+
+        namegends$prob.m[idx] <- cached_prob_m
+        namegends$prob.w[idx] <- cached_prob_w
+      }
     }
   }
 
@@ -222,10 +246,95 @@ suppressWarnings({
 
   # Tier 3: Query gender-api.com for remaining names
   api_call_count <- 0
+  consecutive_401_count <- 0
+  consecutive_400_count <- 0
+  failed_401_names <- character(0)
+  failed_400_names <- character(0)
+
   for (i in remaining) {
     this_name <- namegends$name[i]
     json_file <- paste0("https://gender-api.com/get?name=", this_name, "&key=", gender_api_key)
-    json_data <- fromJSON(file = json_file)
+
+    # Try to fetch gender data with error handling
+    api_result <- tryCatch({
+      fromJSON(file = json_file)
+    }, error = function(e) {
+      # Check if error message indicates specific HTTP status codes
+      error_msg <- conditionMessage(e)
+      if (grepl("401", error_msg, ignore.case = TRUE)) {
+        return(list(error = "401"))
+      } else if (grepl("400", error_msg, ignore.case = TRUE)) {
+        return(list(error = "400"))
+      } else {
+        # Other errors - log and skip
+        cat("Warning: API error for name '", this_name, "': ", error_msg, "\n", sep = "")
+        return(list(error = "other"))
+      }
+    })
+
+    # Handle 401 errors (API limit exceeded)
+    if (!is.null(api_result$error) && api_result$error == "401") {
+      consecutive_401_count <- consecutive_401_count + 1
+      failed_401_names <- c(failed_401_names, this_name)
+      cat("API limit exceeded (401) for name '", this_name, "' (", consecutive_401_count, " consecutive)\n", sep = "")
+
+      # Check if we've hit 10 consecutive 401 errors
+      if (consecutive_401_count >= 10) {
+        cat("\n")
+        cat(paste(rep("=", 70), collapse = ""), "\n", sep = "")
+        cat("ERROR: API credits exceeded\n")
+        cat("Received 10 consecutive 401 errors from gender-api.com\n")
+        cat("The names ", paste(failed_401_names, collapse = ", "), " could not be retrieved from Gender API. Gender limit may have been exceeded\n", sep = "")
+        cat(paste(rep("=", 70), collapse = ""), "\n", sep = "")
+
+        # Save cache before exiting
+        new_entries <- namegends[!is.na(namegends$prob.m), ]
+        merged_cache <- rbind(cached_genders[!cached_genders$name %in% new_entries$name, ], new_entries)
+        save_gender_cache(merged_cache)
+
+        stop("API credits exceeded")
+      }
+
+      # Skip this name (leave as NA)
+      next
+    }
+
+    # Handle 400 errors (bad request)
+    if (!is.null(api_result$error) && api_result$error == "400") {
+      consecutive_400_count <- consecutive_400_count + 1
+      failed_400_names <- c(failed_400_names, this_name)
+      cat("Bad request (400) for name '", this_name, "' (", consecutive_400_count, " consecutive)\n", sep = "")
+
+      # Check if we've hit 10 consecutive 400 errors
+      if (consecutive_400_count >= 10) {
+        cat("\n")
+        cat(paste(rep("=", 70), collapse = ""), "\n", sep = "")
+        cat("ERROR: Server request error\n")
+        cat("Received 10 consecutive 400 errors from gender-api.com\n")
+        cat("The names ", paste(failed_400_names, collapse = ", "), " could not be retrieved from Gender API. An error occurred with submitting to the server\n", sep = "")
+        cat(paste(rep("=", 70), collapse = ""), "\n", sep = "")
+
+        # Save cache before exiting
+        new_entries <- namegends[!is.na(namegends$prob.m), ]
+        merged_cache <- rbind(cached_genders[!cached_genders$name %in% new_entries$name, ], new_entries)
+        save_gender_cache(merged_cache)
+
+        stop("Server request error")
+      }
+
+      # Skip this name (leave as NA)
+      next
+    }
+
+    # Handle other errors - skip name
+    if (!is.null(api_result$error)) {
+      next
+    }
+
+    # Reset consecutive error counters on successful API call
+    consecutive_401_count <- 0
+    consecutive_400_count <- 0
+    json_data <- api_result
 
     if (json_data$gender == "male") {
       namegends$prob.m[i] <- json_data$accuracy / 100
@@ -249,6 +358,35 @@ suppressWarnings({
     }
 
     Sys.sleep(round(runif(1, 1, 3), 0))
+  }
+
+  # After loop completes, check if any errors occurred and exit with appropriate message
+  if (length(failed_401_names) > 0) {
+    cat("\n")
+    cat(paste(rep("=", 70), collapse = ""), "\n", sep = "")
+    cat("The names ", paste(failed_401_names, collapse = ", "), " could not be retrieved from Gender API. Gender limit may have been exceeded\n", sep = "")
+    cat(paste(rep("=", 70), collapse = ""), "\n", sep = "")
+
+    # Save cache before exiting
+    new_entries <- namegends[!is.na(namegends$prob.m), ]
+    merged_cache <- rbind(cached_genders[!cached_genders$name %in% new_entries$name, ], new_entries)
+    save_gender_cache(merged_cache)
+
+    stop("API limit exceeded")
+  }
+
+  if (length(failed_400_names) > 0) {
+    cat("\n")
+    cat(paste(rep("=", 70), collapse = ""), "\n", sep = "")
+    cat("The names ", paste(failed_400_names, collapse = ", "), " could not be retrieved from Gender API. An error occurred with submitting to the server\n", sep = "")
+    cat(paste(rep("=", 70), collapse = ""), "\n", sep = "")
+
+    # Save cache before exiting
+    new_entries <- namegends[!is.na(namegends$prob.m), ]
+    merged_cache <- rbind(cached_genders[!cached_genders$name %in% new_entries$name, ], new_entries)
+    save_gender_cache(merged_cache)
+
+    stop("Server request error")
   }
 
   # Final cache update: merge new lookups with existing cache (append, don't overwrite)
