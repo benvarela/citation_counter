@@ -12,7 +12,6 @@
 
 suppressPackageStartupMessages({
   library(boot)
-  library(dplyr)
 })
 
 args <- commandArgs(trailingOnly = TRUE)
@@ -24,7 +23,8 @@ input_csv  <- args[1]
 output_dir <- args[2]
 label      <- args[3]
 
-N_BINS      <- 10
+BIN_WIDTH   <- 0.05
+MIN_BIN_N   <- 10
 N_BOOTSTRAP <- 2000
 HEATMAP_GRID <- 20
 GRID_POINTS  <- 200
@@ -33,16 +33,14 @@ df <- read.csv(input_csv, stringsAsFactors = FALSE)
 stopifnot(all(c("p_citing", "p_cited") %in% colnames(df)))
 
 p_bar <- mean(df$p_cited)
+field_p_male <- mean(df$p_citing)  # proxy for field gender composition
 
 # ── 1. Binned expectations with bootstrap CIs ──────────────────────────────
 
-# Create bins using quantiles of p_citing
-breaks <- quantile(df$p_citing, probs = seq(0, 1, length.out = N_BINS + 1), na.rm = TRUE)
-# Ensure unique breaks (can happen with ties)
-breaks <- unique(breaks)
-n_actual_bins <- length(breaks) - 1
-
+# Create fixed-width bins (0.05) across [0, 1]
+breaks <- seq(0, 1, by = BIN_WIDTH)
 df$bin <- cut(df$p_citing, breaks = breaks, include.lowest = TRUE, labels = FALSE)
+n_actual_bins <- length(breaks) - 1
 
 delta_stat <- function(data, indices) {
   mean(data[indices]) - p_bar
@@ -59,7 +57,7 @@ binned_results <- data.frame(
 for (b in seq_len(n_actual_bins)) {
   subset_cited <- df$p_cited[df$bin == b]
   n_b <- length(subset_cited)
-  if (n_b < 2) next
+  if (n_b < MIN_BIN_N) next
 
   bin_center <- (breaks[b] + breaks[b + 1]) / 2
   delta_val  <- mean(subset_cited) - p_bar
@@ -87,11 +85,21 @@ write.csv(binned_results, file.path(output_dir, paste0(label, "_binned.csv")),
 # Linear model
 lm_lin  <- lm(p_cited ~ p_citing, data = df)
 lm_sum  <- summary(lm_lin)
+intercept <- coef(lm_lin)[1]
 slope   <- coef(lm_lin)[2]
 slope_se <- lm_sum$coefficients[2, 2]
 slope_pvalue <- lm_sum$coefficients[2, 4]
 r_squared <- lm_sum$r.squared
 slope_ci <- confint(lm_lin, "p_citing", level = 0.95)
+
+# Effect sizes: predicted over/under-citation at extremes vs baseline
+pred_at_1 <- intercept + slope  # predicted p_cited when p_citing = 1 (100% male citer)
+pred_at_0 <- intercept          # predicted p_cited when p_citing = 0 (100% female citer)
+male_overcite_pct  <- (pred_at_1 - p_bar) / p_bar * 100          # % more male cited by 100% male citer
+female_overcite_pct <- ((1 - pred_at_0) - (1 - p_bar)) / (1 - p_bar) * 100  # % more female cited by 100% female citer
+# Adjusted overcitation: how much more males are cited vs expected given field gender ratio
+# field_p_male is the expected fraction if citations were gender-blind
+baseline_overcite_pct <- (p_bar / field_p_male - 1) * 100
 
 # Quadratic model
 lm_quad <- lm(p_cited ~ p_citing + I(p_citing^2), data = df)
@@ -111,6 +119,7 @@ reg_df <- data.frame(
   linear_upper = lin_pred[, "upr"],
   quad_fit     = quad_pred,
   # Repeat scalar stats on every row for easy reading in Python
+  intercept      = intercept,
   slope          = slope,
   slope_se       = slope_se,
   slope_ci_lower = slope_ci[1],
@@ -118,7 +127,11 @@ reg_df <- data.frame(
   slope_pvalue   = slope_pvalue,
   r_squared      = r_squared,
   p_bar          = p_bar,
-  quad_coeff     = quad_coeff
+  field_p_male   = field_p_male,
+  quad_coeff     = quad_coeff,
+  male_overcite_pct   = male_overcite_pct,
+  female_overcite_pct = female_overcite_pct,
+  baseline_overcite_pct = baseline_overcite_pct
 )
 
 write.csv(reg_df, file.path(output_dir, paste0(label, "_regression.csv")),

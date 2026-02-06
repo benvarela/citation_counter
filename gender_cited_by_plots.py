@@ -14,7 +14,8 @@ DATA_PATH = "data/data.xlsx"
 OUTPUT_DIR = "data/plots"
 
 # Constants
-N_BINS = 10
+BIN_WIDTH = 0.05
+MIN_BIN_N = 10
 N_BOOTSTRAP = 2000
 HEATMAP_GRID = 20
 MALE_COLOR = "#4393c3"    # blue
@@ -115,9 +116,20 @@ def save_figure(fig, output_dir, filename):
     print(f"  Saved {filename}.png and {filename}.svg")
 
 
-def plot_binned_expectation(binned_df, p_bar, title, output_dir, filename):
-    """Error bar plot of binned E[p_cited] - baseline with bootstrap CIs."""
+def plot_binned_expectation(binned_df, reg_df, title, output_dir, filename):
+    """Error bar plot of binned E[p_cited] - baseline with bootstrap CIs and linear fit."""
     fig, ax = plt.subplots(figsize=(8, 5))
+
+    # Extract regression scalars
+    p_bar = reg_df["p_bar"].iloc[0]
+    intercept = reg_df["intercept"].iloc[0]
+    slope = reg_df["slope"].iloc[0]
+    slope_ci_l = reg_df["slope_ci_lower"].iloc[0]
+    slope_ci_u = reg_df["slope_ci_upper"].iloc[0]
+    pval = reg_df["slope_pvalue"].iloc[0]
+    r2 = reg_df["r_squared"].iloc[0]
+    male_overcite = reg_df["male_overcite_pct"].iloc[0]
+    female_overcite = reg_df["female_overcite_pct"].iloc[0]
 
     colors = [MALE_COLOR if d > 0 else FEMALE_COLOR for d in binned_df["delta"]]
     ci_lower = binned_df["delta"] - binned_df["ci_lower"]
@@ -130,19 +142,49 @@ def plot_binned_expectation(binned_df, p_bar, title, output_dir, filename):
         color="black", ecolor="gray",
     )
     # Color the markers
-    for i, (xc, yc, c) in enumerate(zip(binned_df["bin_center"], binned_df["delta"], colors)):
+    for xc, yc, c in zip(binned_df["bin_center"], binned_df["delta"], colors):
         ax.plot(xc, yc, "o", color=c, markersize=6, zorder=5)
 
-    ax.axhline(0, color="gray", linestyle="--", linewidth=1, label="gender-neutral baseline")
+    # Overlay linear fit with 95% CI band (shift from p_cited space to delta space)
+    x_grid = reg_df["x_grid"].values
+    y_fit = reg_df["linear_fit"].values - p_bar
+    y_lower = reg_df["linear_lower"].values - p_bar
+    y_upper = reg_df["linear_upper"].values - p_bar
+    ax.fill_between(x_grid, y_lower, y_upper, alpha=0.2, color="red", label="95% CI")
+    ax.plot(x_grid, y_fit, color="red", linewidth=1.5, linestyle="-", alpha=0.8, label="Linear fit")
+
+    ax.axhline(0, color="gray", linestyle="--", linewidth=1, label="Gender-neutral baseline")
     ax.set_xlabel("P(male) of citing author")
     ax.set_ylabel("E[P(male) of cited author] \u2212 baseline")
     ax.set_title(title)
-    ax.legend(loc="best", fontsize=9)
-    ax.annotate(
-        f"baseline P(male) = {p_bar:.3f}",
-        xy=(0.98, 0.02), xycoords="axes fraction",
-        ha="right", va="bottom", fontsize=9,
-        bbox=dict(boxstyle="round,pad=0.3", facecolor="white", alpha=0.8),
+    ax.legend(loc="upper left", fontsize=8)
+
+    # Stats annotation (upper right)
+    pval_str = f"{pval:.2e}" if pval < 0.001 else f"{pval:.4f}"
+    stats_text = (
+        f"Linear slope = {slope:.4f}\n"
+        f"p = {pval_str}\n"
+        f"R\u00b2 = {r2:.4f}"
+    )
+    ax.text(
+        0.98, 0.98, stats_text,
+        transform=ax.transAxes, fontsize=8,
+        verticalalignment="top", horizontalalignment="right",
+        bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
+    )
+
+    # Effect size annotation (lower left)
+    effect_text = (
+        f"100% male citer: {male_overcite:+.1f}% male cited\n"
+        f"100% female citer: {female_overcite:+.1f}% female cited\n"
+        f"Baseline (Included Papers Average Probability Male)\n"
+        f"P(male) = {p_bar:.3f}"
+    )
+    ax.text(
+        0.02, 0.02, effect_text,
+        transform=ax.transAxes, fontsize=8,
+        verticalalignment="bottom", horizontalalignment="left",
+        bbox=dict(boxstyle="round,pad=0.4", facecolor="lightyellow", alpha=0.9),
     )
 
     save_figure(fig, output_dir, filename)
@@ -181,7 +223,7 @@ def plot_regression_trend(reg_df, title, output_dir, filename):
 
     pval_str = f"{pval:.2e}" if pval < 0.001 else f"{pval:.4f}"
     stats_text = (
-        f"\u03b2\u2081 = {slope:.4f}\n"
+        f"Linear slope = {slope:.4f}\n"
         f"95% CI [{slope_ci_l:.4f}, {slope_ci_u:.4f}]\n"
         f"p = {pval_str}\n"
         f"R\u00b2 = {r2:.4f}"
@@ -275,16 +317,21 @@ def analyze_and_plot(cited_by_df, data_df, output_dir):
 
         results = read_r_results(paths)
 
-        p_bar = results["regression"]["p_bar"].iloc[0]
-        slope = results["regression"]["slope"].iloc[0]
-        r2 = results["regression"]["r_squared"].iloc[0]
-        pval = results["regression"]["slope_pvalue"].iloc[0]
+        reg = results["regression"]
+        p_bar = reg["p_bar"].iloc[0]
+        slope = reg["slope"].iloc[0]
+        r2 = reg["r_squared"].iloc[0]
+        pval = reg["slope_pvalue"].iloc[0]
+        male_oc = reg["male_overcite_pct"].iloc[0]
+        female_oc = reg["female_overcite_pct"].iloc[0]
         print(f"  Stats: p_bar={p_bar:.4f}, slope={slope:.4f}, R²={r2:.4f}, p={pval:.2e}")
+        print(f"  Effect: 100% male citer → {male_oc:+.1f}% male cited; "
+              f"100% female citer → {female_oc:+.1f}% female cited")
 
         title_suffix = f"Citing {citing_role.title()} Author vs Cited {cited_role.title()} Author"
 
         plot_binned_expectation(
-            results["binned"], p_bar,
+            results["binned"], reg,
             f"Binned Gender Expectation: {title_suffix}",
             output_dir, f"gender_binned_{citing_role}_vs_{cited_role}",
         )
