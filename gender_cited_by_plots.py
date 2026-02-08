@@ -56,6 +56,75 @@ def load_data(cited_by_path, data_path):
     return cited_by_df, data_df
 
 
+def _normalize_name(name):
+    """Normalize an author name to a comparable form (lowercase, sorted parts)."""
+    name = str(name).strip().lower()
+    # Handle "Last,First" and "First Last" formats
+    parts = [p.strip() for p in name.replace(",", " ").split() if p.strip()]
+    return frozenset(parts)
+
+
+def remove_self_citations(cited_by_df, data_df):
+    """Remove rows from cited_by_df where a first/last author of the citing paper
+    matches a first/last author of the cited paper (self-citations).
+
+    Matching is done by comparing author names from cited_by_df (author_name column
+    for rows where first_author or last_author is TRUE) against the first/last author
+    names of the cited paper from data_df (firstlastauthor_openalex column).
+    """
+    before = len(cited_by_df)
+
+    # Build a set of first/last author names per citing_doi
+    fl_mask = (
+        cited_by_df["first_author"].astype(str).str.strip().str.upper().eq("TRUE")
+        | cited_by_df["last_author"].astype(str).str.strip().str.upper().eq("TRUE")
+    )
+    citing_authors = (
+        cited_by_df[fl_mask]
+        .groupby("citing_doi")["author_name"]
+        .apply(lambda names: {_normalize_name(n) for n in names})
+        .to_dict()
+    )
+
+    # Build a set of first/last author names per cited DOI from data_df
+    cited_authors = {}
+    for _, row in data_df.iterrows():
+        doi = str(row["DOI"]).strip().lower()
+        fl = str(row.get("firstlastauthor_openalex", ""))
+        if pd.isna(fl) or fl == "nan":
+            continue
+        names = {_normalize_name(n) for n in fl.split(";") if n.strip()}
+        cited_authors[doi] = names
+
+    # Identify (citing_doi, cited_doi) pairs that are self-citations
+    link = cited_by_df[["citing_doi", "cited_doi"]].drop_duplicates()
+    self_cite_pairs = set()
+    for _, row in link.iterrows():
+        citing_doi = row["citing_doi"]
+        cited_doi = str(row["cited_doi"]).strip().lower()
+        citing_names = citing_authors.get(citing_doi, set())
+        cited_names = cited_authors.get(cited_doi, set())
+        if citing_names & cited_names:
+            self_cite_pairs.add((citing_doi, row["cited_doi"]))
+
+    # Remove all rows belonging to self-citation pairs
+    if self_cite_pairs:
+        remove_mask = cited_by_df.apply(
+            lambda r: (r["citing_doi"], r["cited_doi"]) in self_cite_pairs, axis=1
+        )
+        cited_by_df = cited_by_df[~remove_mask].reset_index(drop=True)
+
+    after = len(cited_by_df)
+    total_links = len(link)
+    pct_links = len(self_cite_pairs) / total_links * 100 if total_links else 0
+    pct_rows = (before - after) / before * 100 if before else 0
+    print(f"  Self-citations found: {len(self_cite_pairs)} / {total_links} "
+          f"citation links ({pct_links:.1f}%)")
+    print(f"  Rows removed: {before - after} / {before} ({pct_rows:.1f}%), "
+          f"{after} rows remaining")
+    return cited_by_df
+
+
 def prepare_scatter_data(cited_by_df, data_df, author_filter_col, y_col):
     """Filter and merge data to produce x (prob_male from citing) and y (prob_male from cited) Series.
 
@@ -322,7 +391,7 @@ def plot_group_bars(stats_df, output_dir):
         ax.axhline(0, color="gray", linestyle="--", linewidth=1)
 
         ax.set_xticks(x_pos)
-        ax.set_xticklabels([f"{g}\n({GROUP_LABELS[g]})" for g in cited_groups], fontsize=8)
+        ax.set_xticklabels(cited_groups, fontsize=8)
         ax.set_ylabel("% Deviation from Baseline")
         ax.set_title(f"Citation Pattern: {citing_grp} Citing Group ({GROUP_LABELS[citing_grp]})")
 
@@ -417,6 +486,9 @@ if __name__ == "__main__":
     print("Loading data...")
     cited_by_df, data_df = load_data(args.cited_by, args.data)
     print(f"  cited_by: {len(cited_by_df)} rows, data: {len(data_df)} rows")
+
+    print("Removing self-citations...")
+    cited_by_df = remove_self_citations(cited_by_df, data_df)
 
     analyze_and_plot(cited_by_df, data_df, args.output_dir)
     print("\nDone.")
