@@ -18,6 +18,18 @@ MIN_BIN_N = 10
 MALE_COLOR = "#4393c3"    # blue
 FEMALE_COLOR = "#d6604d"  # red/pink
 
+GROUP_COLOR_MM = "#4393c3"  # blue
+GROUP_COLOR_MW = "#5ab4ac"  # teal
+GROUP_COLOR_WM = "#9e9ac8"  # lavender
+GROUP_COLOR_WW = "#d6604d"  # pink-red
+
+GROUP_COLORS = {
+    "MM": GROUP_COLOR_MM,
+    "MW": GROUP_COLOR_MW,
+    "WM": GROUP_COLOR_WM,
+    "WW": GROUP_COLOR_WW,
+}
+
 GROUP_LABELS = {
     "MM": "Man First, Man Last",
     "MW": "Man First, Woman Last",
@@ -302,7 +314,7 @@ def plot_group_bars(stats_df, output_dir):
         errors = sub["se_pct"].values
         n_citations = sub["n"].iloc[0]
 
-        colors = [MALE_COLOR if d > 0 else FEMALE_COLOR for d in deviations]
+        colors = [GROUP_COLORS[g] for g in cited_groups]
         x_pos = np.arange(len(cited_groups))
 
         ax.bar(x_pos, deviations, color=colors, edgecolor="black", linewidth=0.5,
