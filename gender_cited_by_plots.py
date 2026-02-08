@@ -7,19 +7,34 @@ import tempfile
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.colors as mcolors
 
 CITED_BY_PATH = "data/cited_by_info_gender.xlsx"
 DATA_PATH = "data/data.xlsx"
 OUTPUT_DIR = "data/plots"
 
 # Constants
-BIN_WIDTH = 0.05
+BIN_WIDTH = 0.2
 MIN_BIN_N = 10
-N_BOOTSTRAP = 2000
-HEATMAP_GRID = 20
 MALE_COLOR = "#4393c3"    # blue
 FEMALE_COLOR = "#d6604d"  # red/pink
+
+GROUP_LABELS = {
+    "MM": "Man First, Man Last",
+    "MW": "Man First, Woman Last",
+    "WM": "Woman First, Man Last",
+    "WW": "Woman First, Woman Last",
+}
+
+
+def categorize_gender(prob_male):
+    """Categorize a prob_male value into 'M', 'W', or 'U' (unknown)."""
+    if pd.isna(prob_male) or prob_male == -1:
+        return "U"
+    if prob_male >= 0.7:
+        return "M"
+    if prob_male <= 0.3:
+        return "W"
+    return "U"
 
 
 def load_data(cited_by_path, data_path):
@@ -95,16 +110,14 @@ def run_r_stats(x, y, label, output_dir):
     return {
         "binned": os.path.join(output_dir, f"{label}_binned.csv"),
         "regression": os.path.join(output_dir, f"{label}_regression.csv"),
-        "heatmap": os.path.join(output_dir, f"{label}_heatmap.csv"),
     }
 
 
 def read_r_results(paths):
-    """Read the 3 R output CSVs into DataFrames."""
+    """Read the R output CSVs into DataFrames."""
     return {
         "binned": pd.read_csv(paths["binned"]),
         "regression": pd.read_csv(paths["regression"]),
-        "heatmap": pd.read_csv(paths["heatmap"]),
     }
 
 
@@ -117,45 +130,38 @@ def save_figure(fig, output_dir, filename):
 
 
 def plot_binned_expectation(binned_df, reg_df, title, output_dir, filename):
-    """Error bar plot of binned E[p_cited] - baseline with bootstrap CIs and linear fit."""
+    """Bar chart of binned E[p_cited] - baseline with SE error bars and linear fit."""
     fig, ax = plt.subplots(figsize=(8, 5))
 
     # Extract regression scalars
     p_bar = reg_df["p_bar"].iloc[0]
     intercept = reg_df["intercept"].iloc[0]
     slope = reg_df["slope"].iloc[0]
-    slope_ci_l = reg_df["slope_ci_lower"].iloc[0]
-    slope_ci_u = reg_df["slope_ci_upper"].iloc[0]
     pval = reg_df["slope_pvalue"].iloc[0]
     r2 = reg_df["r_squared"].iloc[0]
     male_overcite = reg_df["male_overcite_pct"].iloc[0]
     female_overcite = reg_df["female_overcite_pct"].iloc[0]
 
     colors = [MALE_COLOR if d > 0 else FEMALE_COLOR for d in binned_df["delta"]]
-    ci_lower = binned_df["delta"] - binned_df["ci_lower"]
-    ci_upper = binned_df["ci_upper"] - binned_df["delta"]
 
-    ax.errorbar(
+    # Bar chart from 0 to delta with SE error bars
+    ax.bar(
         binned_df["bin_center"], binned_df["delta"],
-        yerr=[ci_lower, ci_upper],
-        fmt="o", markersize=6, capsize=4,
-        color="black", ecolor="gray",
+        width=BIN_WIDTH * 0.8, color=colors, edgecolor="black", linewidth=0.5,
+        yerr=binned_df["se"], capsize=4, ecolor="black",
     )
-    # Color the markers
-    for xc, yc, c in zip(binned_df["bin_center"], binned_df["delta"], colors):
-        ax.plot(xc, yc, "o", color=c, markersize=6, zorder=5)
 
-    # Overlay linear fit with 95% CI band (shift from p_cited space to delta space)
+    # Overlay linear fit with 95% CI band (convert from p_cited space to % deviation)
     x_grid = reg_df["x_grid"].values
-    y_fit = reg_df["linear_fit"].values - p_bar
-    y_lower = reg_df["linear_lower"].values - p_bar
-    y_upper = reg_df["linear_upper"].values - p_bar
-    ax.fill_between(x_grid, y_lower, y_upper, alpha=0.2, color="red", label="95% CI")
-    ax.plot(x_grid, y_fit, color="red", linewidth=1.5, linestyle="-", alpha=0.8, label="Linear fit")
+    y_fit = (reg_df["linear_fit"].values - p_bar) / p_bar * 100
+    y_lower = (reg_df["linear_lower"].values - p_bar) / p_bar * 100
+    y_upper = (reg_df["linear_upper"].values - p_bar) / p_bar * 100
+    ax.fill_between(x_grid, y_lower, y_upper, alpha=0.2, color="green", label="95% CI")
+    ax.plot(x_grid, y_fit, color="green", linewidth=1.5, linestyle="-", alpha=0.8, label="Linear fit")
 
     ax.axhline(0, color="gray", linestyle="--", linewidth=1, label="Gender-neutral baseline")
     ax.set_xlabel("P(male) of citing author")
-    ax.set_ylabel("E[P(male) of cited author] \u2212 baseline")
+    ax.set_ylabel("% deviation from baseline P(male) of cited author")
     ax.set_title(title)
     ax.legend(loc="upper left", fontsize=8)
 
@@ -176,7 +182,7 @@ def plot_binned_expectation(binned_df, reg_df, title, output_dir, filename):
     # Effect size annotation (lower left)
     effect_text = (
         f"100% male citer: {male_overcite:+.1f}% male cited\n"
-        f"100% female citer: {female_overcite:+.1f}% female cited\n"
+        f"100% female citer: {female_overcite:+.1f}% male cited\n"
         f"Baseline (Included Papers Average Probability Male)\n"
         f"P(male) = {p_bar:.3f}"
     )
@@ -190,101 +196,132 @@ def plot_binned_expectation(binned_df, reg_df, title, output_dir, filename):
     save_figure(fig, output_dir, filename)
 
 
-def plot_regression_trend(reg_df, title, output_dir, filename):
-    """Linear + quadratic regression with confidence band and stats annotation."""
-    fig, ax = plt.subplots(figsize=(8, 5))
 
-    # Confidence band for linear fit
-    ax.fill_between(
-        reg_df["x_grid"], reg_df["linear_lower"], reg_df["linear_upper"],
-        alpha=0.2, color="red", label="95% CI (linear)",
+def prepare_group_data(cited_by_df, data_df):
+    """Build a DataFrame of citing_group × cited_group for every citation link."""
+    # --- Citing paper groups ---
+    # Get first author prob_male per citing_doi
+    first_mask = cited_by_df["first_author"].astype(str).str.strip().str.upper() == "TRUE"
+    last_mask = cited_by_df["last_author"].astype(str).str.strip().str.upper() == "TRUE"
+
+    citing_first = (
+        cited_by_df[first_mask][["citing_doi", "prob_male"]]
+        .rename(columns={"prob_male": "citing_first_prob"})
     )
-    # Linear fit
-    ax.plot(reg_df["x_grid"], reg_df["linear_fit"], color="red", linewidth=2, label="Linear fit")
-    # Quadratic fit
-    ax.plot(reg_df["x_grid"], reg_df["quad_fit"], color="purple", linewidth=1.5,
-            linestyle="--", label="Quadratic fit")
-
-    # Baseline
-    p_bar = reg_df["p_bar"].iloc[0]
-    ax.axhline(p_bar, color="gray", linestyle="--", linewidth=1, alpha=0.7, label=f"Baseline ({p_bar:.3f})")
-
-    ax.set_xlabel("P(male) of citing author")
-    ax.set_ylabel("P(male) of cited author")
-    ax.set_title(title)
-    ax.legend(loc="upper left", fontsize=8)
-
-    # Stats text box
-    slope = reg_df["slope"].iloc[0]
-    slope_ci_l = reg_df["slope_ci_lower"].iloc[0]
-    slope_ci_u = reg_df["slope_ci_upper"].iloc[0]
-    pval = reg_df["slope_pvalue"].iloc[0]
-    r2 = reg_df["r_squared"].iloc[0]
-
-    pval_str = f"{pval:.2e}" if pval < 0.001 else f"{pval:.4f}"
-    stats_text = (
-        f"Linear slope = {slope:.4f}\n"
-        f"95% CI [{slope_ci_l:.4f}, {slope_ci_u:.4f}]\n"
-        f"p = {pval_str}\n"
-        f"R\u00b2 = {r2:.4f}"
-    )
-    ax.text(
-        0.98, 0.98, stats_text,
-        transform=ax.transAxes, fontsize=9,
-        verticalalignment="top", horizontalalignment="right",
-        bbox=dict(boxstyle="round,pad=0.4", facecolor="white", alpha=0.9),
+    citing_last = (
+        cited_by_df[last_mask][["citing_doi", "prob_male"]]
+        .rename(columns={"prob_male": "citing_last_prob"})
     )
 
-    save_figure(fig, output_dir, filename)
+    # One row per citing_doi: take first occurrence if duplicates
+    citing_first = citing_first.drop_duplicates(subset="citing_doi", keep="first")
+    citing_last = citing_last.drop_duplicates(subset="citing_doi", keep="first")
 
+    citing = citing_first.merge(citing_last, on="citing_doi", how="inner")
+    citing["citing_first_gender"] = citing["citing_first_prob"].apply(categorize_gender)
+    citing["citing_last_gender"] = citing["citing_last_prob"].apply(categorize_gender)
+    citing["citing_group"] = citing["citing_first_gender"] + citing["citing_last_gender"]
 
-def plot_heatmap(heatmap_df, title, output_dir, filename):
-    """2D heatmap of log2(observed/expected) with diverging colormap."""
-    fig, ax = plt.subplots(figsize=(7, 6))
+    # Drop unknown
+    citing = citing[~citing["citing_group"].str.contains("U")].copy()
 
-    # Pivot to 2D grid
-    x_vals = sorted(heatmap_df["x_mid"].unique())
-    y_vals = sorted(heatmap_df["y_mid"].unique())
-    nx, ny = len(x_vals), len(y_vals)
+    # --- Cited paper groups ---
+    data_copy = data_df.copy()
+    data_copy["cited_first_gender"] = data_copy["first_prob_male"].apply(categorize_gender)
+    data_copy["cited_last_gender"] = data_copy["last_prob_male"].apply(categorize_gender)
+    data_copy["cited_group"] = data_copy["cited_first_gender"] + data_copy["cited_last_gender"]
+    data_copy = data_copy[~data_copy["cited_group"].str.contains("U")].copy()
+    data_copy["doi_key"] = data_copy["DOI"].astype(str).str.strip().str.lower()
 
-    grid = np.full((ny, nx), np.nan)
-    x_idx = {v: i for i, v in enumerate(x_vals)}
-    y_idx = {v: i for i, v in enumerate(y_vals)}
+    # --- Merge on cited_doi ↔ DOI ---
+    # Also need cited_doi from cited_by to link citing→cited
+    link = cited_by_df[["citing_doi", "cited_doi"]].drop_duplicates()
+    link["doi_key"] = link["cited_doi"].astype(str).str.strip().str.lower()
 
-    for _, row in heatmap_df.iterrows():
-        xi = x_idx[row["x_mid"]]
-        yi = y_idx[row["y_mid"]]
-        grid[yi, xi] = row["log2_ratio"]
-
-    # Symmetric color limits
-    valid_vals = grid[~np.isnan(grid)]
-    if len(valid_vals) > 0:
-        vmax = max(abs(valid_vals.min()), abs(valid_vals.max()))
-    else:
-        vmax = 1.0
-    vmin = -vmax
-
-    # Set NaN (empty cells) to gray via set_bad
-    cmap = plt.cm.RdBu_r.copy()
-    cmap.set_bad(color="0.85")
-
-    # Compute cell edges from midpoints
-    dx = x_vals[1] - x_vals[0] if nx > 1 else 0.05
-    dy = y_vals[1] - y_vals[0] if ny > 1 else 0.05
-    x_edges = [v - dx / 2 for v in x_vals] + [x_vals[-1] + dx / 2]
-    y_edges = [v - dy / 2 for v in y_vals] + [y_vals[-1] + dy / 2]
-
-    mesh = ax.pcolormesh(
-        x_edges, y_edges, grid,
-        cmap=cmap, vmin=vmin, vmax=vmax,
+    merged = (
+        citing[["citing_doi", "citing_group"]]
+        .merge(link[["citing_doi", "doi_key"]], on="citing_doi", how="inner")
+        .merge(data_copy[["doi_key", "cited_group"]], on="doi_key", how="inner")
     )
-    cbar = fig.colorbar(mesh, ax=ax, label="log\u2082(observed / expected)")
 
-    ax.set_xlabel("P(male) of citing author")
-    ax.set_ylabel("P(male) of cited author")
-    ax.set_title(title)
+    print(f"\nGroup analysis: {len(merged)} citation links with known citing & cited groups")
+    print(f"  Citing group counts: {merged['citing_group'].value_counts().to_dict()}")
+    print(f"  Cited group counts:  {merged['cited_group'].value_counts().to_dict()}")
 
-    save_figure(fig, output_dir, filename)
+    return merged, data_copy
+
+
+def compute_group_stats(merged_df, data_known_df):
+    """Compute % over/undercitation for each citing group × cited group pair."""
+    # Baseline: proportion of each cited group among all known-gender cited papers
+    baseline = data_known_df["cited_group"].value_counts(normalize=True)
+
+    rows = []
+    for citing_grp in ["MM", "MW", "WM", "WW"]:
+        subset = merged_df[merged_df["citing_group"] == citing_grp]
+        n = len(subset)
+        if n == 0:
+            continue
+        observed = subset["cited_group"].value_counts(normalize=True)
+
+        for cited_grp in ["MM", "MW", "WM", "WW"]:
+            p_base = baseline.get(cited_grp, 0)
+            p_obs = observed.get(cited_grp, 0)
+            if p_base == 0:
+                continue
+            deviation = (p_obs - p_base) / p_base * 100
+            se = np.sqrt(p_obs * (1 - p_obs) / n) / p_base * 100
+            rows.append({
+                "citing_group": citing_grp,
+                "cited_group": cited_grp,
+                "n": n,
+                "p_baseline": p_base,
+                "p_observed": p_obs,
+                "deviation_pct": deviation,
+                "se_pct": se,
+            })
+
+    stats_df = pd.DataFrame(rows)
+    print("\nGroup deviation stats:")
+    for _, r in stats_df.iterrows():
+        print(f"  {r['citing_group']} → {r['cited_group']}: "
+              f"{r['deviation_pct']:+.1f}% (SE={r['se_pct']:.1f}%, n={r['n']})")
+    return stats_df
+
+
+def plot_group_bars(stats_df, output_dir):
+    """Create one bar plot per citing group showing % deviation from baseline."""
+    for citing_grp in ["MM", "MW", "WM", "WW"]:
+        sub = stats_df[stats_df["citing_group"] == citing_grp]
+        if sub.empty:
+            continue
+
+        fig, ax = plt.subplots(figsize=(7, 5))
+        cited_groups = sub["cited_group"].values
+        deviations = sub["deviation_pct"].values
+        errors = sub["se_pct"].values
+        n_citations = sub["n"].iloc[0]
+
+        colors = [MALE_COLOR if d > 0 else FEMALE_COLOR for d in deviations]
+        x_pos = np.arange(len(cited_groups))
+
+        ax.bar(x_pos, deviations, color=colors, edgecolor="black", linewidth=0.5,
+               yerr=errors, capsize=5, ecolor="black")
+        ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+
+        ax.set_xticks(x_pos)
+        ax.set_xticklabels([f"{g}\n({GROUP_LABELS[g]})" for g in cited_groups], fontsize=8)
+        ax.set_ylabel("% Deviation from Baseline")
+        ax.set_title(f"Citation Pattern: {citing_grp} Citing Group ({GROUP_LABELS[citing_grp]})")
+
+        ax.text(
+            0.98, 0.98, f"n = {n_citations} citations",
+            transform=ax.transAxes, fontsize=9,
+            verticalalignment="top", horizontalalignment="right",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
+        )
+
+        save_figure(fig, output_dir, f"gender_group_{citing_grp}")
 
 
 def analyze_and_plot(cited_by_df, data_df, output_dir):
@@ -335,16 +372,6 @@ def analyze_and_plot(cited_by_df, data_df, output_dir):
             f"Binned Gender Expectation: {title_suffix}",
             output_dir, f"gender_binned_{citing_role}_vs_{cited_role}",
         )
-        plot_regression_trend(
-            results["regression"],
-            f"Regression Trend: {title_suffix}",
-            output_dir, f"gender_regression_{citing_role}_vs_{cited_role}",
-        )
-        plot_heatmap(
-            results["heatmap"],
-            f"Gender Citation Heatmap: {title_suffix}",
-            output_dir, f"gender_heatmap_{citing_role}_vs_{cited_role}",
-        )
 
         # Clean up R intermediate CSVs
         for p in paths.values():
@@ -357,10 +384,18 @@ def analyze_and_plot(cited_by_df, data_df, output_dir):
     except OSError:
         pass
 
+    # --- Group-based over/undercitation analysis ---
+    print("\n--- Group-based citation analysis ---")
+    merged_groups, data_known = prepare_group_data(cited_by_df, data_df)
+    if len(merged_groups) > 0:
+        stats = compute_group_stats(merged_groups, data_known)
+        if not stats.empty:
+            plot_group_bars(stats, output_dir)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Generate gender citation analysis plots (binned, regression, heatmap)"
+        description="Generate gender citation analysis plots (binned, regression)"
     )
     parser.add_argument("--cited-by", default=CITED_BY_PATH, help="Path to cited_by_info_gender.xlsx")
     parser.add_argument("--data", default=DATA_PATH, help="Path to data.xlsx")

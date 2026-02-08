@@ -1,18 +1,15 @@
 #!/usr/bin/env Rscript
 # gender_citation_stats.R
-# Compute binned expectations, regression, and heatmap statistics for gender citation analysis.
+# Compute binned expectations and regression statistics for gender citation analysis.
 #
 # Usage: Rscript gender_citation_stats.R <input.csv> <output_dir> <label>
 #
 # Input CSV must have columns: p_citing, p_cited
-# Outputs three CSV files to output_dir:
+# Outputs two CSV files to output_dir:
 #   <label>_binned.csv   — binned expectation deltas with bootstrap CIs
 #   <label>_regression.csv — regression grid + summary statistics
-#   <label>_heatmap.csv  — 2D histogram log2(observed/expected)
 
-suppressPackageStartupMessages({
-  library(boot)
-})
+# No external packages required — base R only
 
 args <- commandArgs(trailingOnly = TRUE)
 if (length(args) < 3) {
@@ -23,10 +20,9 @@ input_csv  <- args[1]
 output_dir <- args[2]
 label      <- args[3]
 
-BIN_WIDTH   <- 0.05
+BIN_WIDTH   <- 0.2
 MIN_BIN_N   <- 10
 N_BOOTSTRAP <- 2000
-HEATMAP_GRID <- 20
 GRID_POINTS  <- 200
 
 df <- read.csv(input_csv, stringsAsFactors = FALSE)
@@ -35,23 +31,18 @@ stopifnot(all(c("p_citing", "p_cited") %in% colnames(df)))
 p_bar <- mean(df$p_cited)
 field_p_male <- mean(df$p_citing)  # proxy for field gender composition
 
-# ── 1. Binned expectations with bootstrap CIs ──────────────────────────────
+# ── 1. Binned expectations with standard error ─────────────────────────────
 
-# Create fixed-width bins (0.05) across [0, 1]
+# Create fixed-width bins across [0, 1]
 breaks <- seq(0, 1, by = BIN_WIDTH)
 df$bin <- cut(df$p_citing, breaks = breaks, include.lowest = TRUE, labels = FALSE)
 n_actual_bins <- length(breaks) - 1
-
-delta_stat <- function(data, indices) {
-  mean(data[indices]) - p_bar
-}
 
 binned_results <- data.frame(
   bin_center = numeric(0),
   bin_n      = integer(0),
   delta      = numeric(0),
-  ci_lower   = numeric(0),
-  ci_upper   = numeric(0)
+  se         = numeric(0)
 )
 
 for (b in seq_len(n_actual_bins)) {
@@ -60,20 +51,14 @@ for (b in seq_len(n_actual_bins)) {
   if (n_b < MIN_BIN_N) next
 
   bin_center <- (breaks[b] + breaks[b + 1]) / 2
-  delta_val  <- mean(subset_cited) - p_bar
-
-  boot_out <- boot(subset_cited, delta_stat, R = N_BOOTSTRAP)
-  ci <- tryCatch(
-    boot.ci(boot_out, type = "perc", conf = 0.95)$percent[4:5],
-    error = function(e) c(NA, NA)
-  )
+  delta_val  <- (mean(subset_cited) - p_bar) / p_bar * 100   # % deviation from baseline
+  se_val     <- sd(subset_cited) / sqrt(n_b) / p_bar * 100   # SE in same % units
 
   binned_results <- rbind(binned_results, data.frame(
     bin_center = bin_center,
     bin_n      = n_b,
     delta      = delta_val,
-    ci_lower   = ci[1],
-    ci_upper   = ci[2]
+    se         = se_val
   ))
 }
 
@@ -96,7 +81,7 @@ slope_ci <- confint(lm_lin, "p_citing", level = 0.95)
 pred_at_1 <- intercept + slope  # predicted p_cited when p_citing = 1 (100% male citer)
 pred_at_0 <- intercept          # predicted p_cited when p_citing = 0 (100% female citer)
 male_overcite_pct  <- (pred_at_1 - p_bar) / p_bar * 100          # % more male cited by 100% male citer
-female_overcite_pct <- ((1 - pred_at_0) - (1 - p_bar)) / (1 - p_bar) * 100  # % more female cited by 100% female citer
+female_overcite_pct <- (pred_at_0 - p_bar) / p_bar * 100  # % deviation in male cited by 100% female citer
 # Adjusted overcitation: how much more males are cited vs expected given field gender ratio
 # field_p_male is the expected fraction if citations were gender-blind
 baseline_overcite_pct <- (p_bar / field_p_male - 1) * 100
@@ -135,57 +120,6 @@ reg_df <- data.frame(
 )
 
 write.csv(reg_df, file.path(output_dir, paste0(label, "_regression.csv")),
-          row.names = FALSE)
-
-# ── 3. Heatmap: 2D histogram with log2(observed/expected) ──────────────────
-
-x_edges <- seq(0, 1, length.out = HEATMAP_GRID + 1)
-y_edges <- seq(0, 1, length.out = HEATMAP_GRID + 1)
-
-# 2D histogram
-h <- hist2d_manual <- matrix(0, nrow = HEATMAP_GRID, ncol = HEATMAP_GRID)
-x_bin <- findInterval(df$p_citing, x_edges, all.inside = TRUE)
-y_bin <- findInterval(df$p_cited, y_edges, all.inside = TRUE)
-for (i in seq_len(nrow(df))) {
-  h[x_bin[i], y_bin[i]] <- h[x_bin[i], y_bin[i]] + 1
-}
-
-n_total <- nrow(df)
-row_margin <- rowSums(h)
-col_margin <- colSums(h)
-
-heatmap_results <- data.frame(
-  x_mid    = numeric(0),
-  y_mid    = numeric(0),
-  log2_ratio = numeric(0),
-  observed = numeric(0),
-  expected = numeric(0)
-)
-
-for (i in seq_len(HEATMAP_GRID)) {
-  for (j in seq_len(HEATMAP_GRID)) {
-    x_mid <- (x_edges[i] + x_edges[i + 1]) / 2
-    y_mid <- (y_edges[j] + y_edges[j + 1]) / 2
-    obs   <- h[i, j]
-    exp_val <- (row_margin[i] * col_margin[j]) / n_total
-
-    if (exp_val > 0 && obs > 0) {
-      log2_r <- log2(obs / exp_val)
-    } else {
-      log2_r <- NA
-    }
-
-    heatmap_results <- rbind(heatmap_results, data.frame(
-      x_mid      = x_mid,
-      y_mid      = y_mid,
-      log2_ratio = log2_r,
-      observed   = obs,
-      expected   = exp_val
-    ))
-  }
-}
-
-write.csv(heatmap_results, file.path(output_dir, paste0(label, "_heatmap.csv")),
           row.names = FALSE)
 
 cat("R stats complete for:", label, "\n")
