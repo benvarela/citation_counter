@@ -352,10 +352,12 @@ def compute_group_stats(merged_df, data_known_df):
                 continue
             deviation = (p_obs - p_base) / p_base * 100
             se = np.sqrt(p_obs * (1 - p_obs) / n) / p_base * 100
+            n_pair = int((subset["cited_group"] == cited_grp).sum())
             rows.append({
                 "citing_group": citing_grp,
                 "cited_group": cited_grp,
-                "n": n,
+                "n_total": n,
+                "n_pair": n_pair,
                 "p_baseline": p_base,
                 "p_observed": p_obs,
                 "deviation_pct": deviation,
@@ -366,7 +368,7 @@ def compute_group_stats(merged_df, data_known_df):
     print("\nGroup deviation stats:")
     for _, r in stats_df.iterrows():
         print(f"  {r['citing_group']} → {r['cited_group']}: "
-              f"{r['deviation_pct']:+.1f}% (SE={r['se_pct']:.1f}%, n={r['n']})")
+              f"{r['deviation_pct']:+.1f}% (SE={r['se_pct']:.1f}%, n_pair={r['n_pair']}, n_total={r['n_total']})")
     return stats_df
 
 
@@ -381,7 +383,8 @@ def plot_group_bars(stats_df, output_dir):
         cited_groups = sub["cited_group"].values
         deviations = sub["deviation_pct"].values
         errors = sub["se_pct"].values
-        n_citations = sub["n"].iloc[0]
+        n_pairs = sub["n_pair"].values
+        n_total = sub["n_total"].iloc[0]
 
         colors = [GROUP_COLORS[g] for g in cited_groups]
         x_pos = np.arange(len(cited_groups))
@@ -395,8 +398,23 @@ def plot_group_bars(stats_df, output_dir):
         ax.set_ylabel("% Deviation from Baseline")
         ax.set_title(f"Citation Pattern: {citing_grp} Citing Group ({GROUP_LABELS[citing_grp]})")
 
+        # Place n just above positive error bars and just below negative error bars
+        for i, (x, dev, err, np_) in enumerate(zip(x_pos, deviations, errors, n_pairs)):
+            y_anchor = dev + err if dev >= 0 else dev - err
+            y_offset = 3 if dev >= 0 else -3
+            va = "bottom" if dev >= 0 else "top"
+            ax.annotate(
+                f"n={np_}",
+                (x, y_anchor),
+                textcoords="offset points",
+                xytext=(0, y_offset),
+                ha="center",
+                va=va,
+                fontsize=8,
+            )
+
         ax.text(
-            0.98, 0.98, f"n = {n_citations} citations",
+            0.98, 0.98, f"n = {n_total} total citations",
             transform=ax.transAxes, fontsize=9,
             verticalalignment="top", horizontalalignment="right",
             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
