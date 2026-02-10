@@ -548,6 +548,62 @@ def plot_sjr_adjusted_bars(output_dir, label="group"):
     save_figure(fig, output_dir, "gender_group_sjr_adjusted")
 
 
+def plot_direct_adjusted_bars(output_dir, label="group"):
+    """Bar plot of direct-standardized % over/undercitation by cited gender group."""
+    csv_path = os.path.join(output_dir, f"{label}_direct_adjusted_deviations.csv")
+    if not os.path.exists(csv_path):
+        print("  Skipping direct-standardized bar plot: CSV not found")
+        return
+
+    df = pd.read_csv(csv_path)
+    if df.empty:
+        print("  Skipping direct-standardized bar plot: no data")
+        return
+
+    fig, ax = plt.subplots(figsize=(7, 5))
+
+    cited_groups = df["cited_group"].values
+    deviations = df["deviation_pct"].values
+    errors = df["se_pct"].values
+    counts = df["n_links"].values
+
+    colors = [GROUP_COLORS[g] for g in cited_groups]
+    x_pos = np.arange(len(cited_groups))
+
+    ax.bar(x_pos, deviations, color=colors, edgecolor="black", linewidth=0.5,
+           yerr=errors, capsize=5, ecolor="black")
+    ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+
+    ax.set_xticks(x_pos)
+    ax.set_xticklabels(cited_groups, fontsize=8)
+    ax.set_ylabel("% Deviation from Direct-Standardized Mean")
+    ax.set_title("Over/Undercitation by Cited Gender Group\n(Direct Standardized: Proportion + SJR)")
+
+    for i, (x, dev, err, n) in enumerate(zip(x_pos, deviations, errors, counts)):
+        y_anchor = dev + err if dev >= 0 else dev - err
+        y_offset = 3 if dev >= 0 else -3
+        va = "bottom" if dev >= 0 else "top"
+        ax.annotate(
+            f"n={n}",
+            (x, y_anchor),
+            textcoords="offset points",
+            xytext=(0, y_offset),
+            ha="center",
+            va=va,
+            fontsize=8,
+        )
+
+    n_total = int(df["n_links"].sum())
+    ax.text(
+        0.98, 0.98, f"n = {n_total} total citations",
+        transform=ax.transAxes, fontsize=9,
+        verticalalignment="top", horizontalalignment="right",
+        bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
+    )
+
+    save_figure(fig, output_dir, "gender_group_direct_standardized")
+
+
 def run_r_group_stats(merged_df, data_known_df, label, output_dir):
     """Write group data to temp CSV, call R script for group-level stats."""
     r_script = os.path.join(os.path.dirname(os.path.abspath(__file__)), "gender_group_stats.R")
@@ -589,6 +645,7 @@ def run_r_group_stats(merged_df, data_known_df, label, output_dir):
         "sjr_models": os.path.join(output_dir, f"{label}_sjr_models.csv"),
         "paper_models": os.path.join(output_dir, f"{label}_paper_models.csv"),
         "adjusted_deviations": os.path.join(output_dir, f"{label}_adjusted_deviations.csv"),
+        "direct_adjusted_deviations": os.path.join(output_dir, f"{label}_direct_adjusted_deviations.csv"),
     }
 
 
@@ -663,6 +720,20 @@ def print_group_stats_summary(paths):
             print(f"\n  SJR-adjusted over/undercitation (n = {n_total} total citations):")
             print(f"    {'Group':<8} {'Obs %':<10} {'Adj Exp %':<12} {'Deviation':<12} {'SE':<10} {'Links':<8} {'Papers':<8}")
             for _, r in adj.iterrows():
+                print(f"    {r['cited_group']:<8} {r['obs_prop']*100:.1f}%{'':<4} "
+                      f"{r['adj_baseline']*100:.1f}%{'':<6} "
+                      f"{r['deviation_pct']:+.1f}%{'':<6} "
+                      f"{r['se_pct']:.1f}%{'':<4} "
+                      f"{int(r['n_links']):<8} {int(r['n_papers'])}")
+
+    # Direct-standardized deviations (group proportion + SJR)
+    if "direct_adjusted_deviations" in paths and os.path.exists(paths["direct_adjusted_deviations"]):
+        dadj = pd.read_csv(paths["direct_adjusted_deviations"])
+        if len(dadj) > 0 and "deviation_pct" in dadj.columns:
+            n_total = int(dadj["n_links"].sum())
+            print(f"\n  Direct-standardized over/undercitation (n = {n_total} total citations):")
+            print(f"    {'Group':<8} {'Obs %':<10} {'Adj Exp %':<12} {'Deviation':<12} {'SE':<10} {'Links':<8} {'Papers':<8}")
+            for _, r in dadj.iterrows():
                 print(f"    {r['cited_group']:<8} {r['obs_prop']*100:.1f}%{'':<4} "
                       f"{r['adj_baseline']*100:.1f}%{'':<6} "
                       f"{r['deviation_pct']:+.1f}%{'':<6} "
@@ -744,6 +815,7 @@ def analyze_and_plot(cited_by_df, data_df, output_dir):
         if group_stats_paths is not None:
             print_group_stats_summary(group_stats_paths)
             plot_sjr_adjusted_bars(output_dir, label="group")
+            plot_direct_adjusted_bars(output_dir, label="group")
 
 
 if __name__ == "__main__":

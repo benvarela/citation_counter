@@ -307,6 +307,91 @@ if (!is.null(paper_csv)) {
                 row.names = FALSE)
     }
 
+    # ── 6. Direct standardization: normalize to group proportions + SJR ───────────
+    #
+    # Use group proportions from all known-gender papers (including missing SJR),
+    # and SJR-based expected links from the SJR subset.
+    # Expected share for group g:
+    #   adj_score_g = p_g * mean(n_hat | group g)
+    #   adj_baseline = adj_score_g / sum(adj_score_g)
+    #
+    # This preserves target group proportions while scaling by SJR-linked intensity.
+
+    if ("n_links" %in% colnames(pdf_sjr)) {
+      # Group proportions from all known-gender papers
+      p_g <- prop.table(table(pdf$cited_group))[group_levels]
+
+      # SJR-only expected links from previous Poisson fit
+      n_hat <- predict(fit_links, type = "response")
+      mean_hat <- tapply(n_hat, pdf_sjr$cited_group, mean)
+      mean_hat <- mean_hat[group_levels]
+
+      adj_score <- p_g * mean_hat
+      adj_baseline2 <- adj_score / sum(adj_score, na.rm = TRUE)
+
+      obs_links2 <- tapply(pdf_sjr$n_links, pdf_sjr$cited_group, sum)
+      obs_prop2  <- obs_links2 / sum(obs_links2)
+      obs_prop2  <- obs_prop2[group_levels]
+
+      deviation_pct2 <- (obs_prop2 - adj_baseline2) / adj_baseline2 * 100
+
+      # Bootstrap SEs (resample papers, refit, recompute deviations)
+      set.seed(42)
+      n_boot <- 1000
+      boot_devs <- matrix(NA, nrow = n_boot, ncol = length(group_levels))
+
+      for (b in seq_len(n_boot)) {
+        idx <- sample(nrow(pdf_sjr), replace = TRUE)
+        bdata <- pdf_sjr[idx, ]
+
+        bfit <- tryCatch(
+          glm(n_links ~ SJR_scimago, data = bdata, family = poisson),
+          error = function(e) NULL
+        )
+        if (is.null(bfit)) next
+
+        bn_hat <- predict(bfit, newdata = bdata, type = "response")
+        bmean_hat <- tapply(bn_hat, bdata$cited_group, mean)
+        bmean_hat <- bmean_hat[group_levels]
+
+        badj_score <- p_g * bmean_hat
+        badj_base  <- badj_score / sum(badj_score, na.rm = TRUE)
+
+        bobs_links <- tapply(bdata$n_links, bdata$cited_group, sum)
+        bobs_prop  <- bobs_links / sum(bobs_links)
+        bobs_prop  <- bobs_prop[group_levels]
+
+        for (g in seq_along(group_levels)) {
+          grp <- group_levels[g]
+          if (!is.na(badj_base[grp]) && badj_base[grp] > 0 && !is.na(bobs_prop[grp])) {
+            boot_devs[b, g] <- (bobs_prop[grp] - badj_base[grp]) / badj_base[grp] * 100
+          }
+        }
+      }
+
+      se_pct2 <- apply(boot_devs, 2, sd, na.rm = TRUE)
+
+      n_links_per_group2 <- as.integer(obs_links2[group_levels])
+      n_papers_per_group2 <- as.integer(table(pdf_sjr$cited_group)[group_levels])
+      p_g_out <- as.numeric(p_g)
+
+      adj_df2 <- data.frame(
+        cited_group   = group_levels,
+        obs_prop      = as.numeric(obs_prop2),
+        adj_baseline  = as.numeric(adj_baseline2),
+        deviation_pct = as.numeric(deviation_pct2),
+        se_pct        = se_pct2,
+        n_links       = n_links_per_group2,
+        n_papers      = n_papers_per_group2,
+        p_group_all   = p_g_out,
+        mean_hat      = as.numeric(mean_hat),
+        stringsAsFactors = FALSE
+      )
+
+      write.csv(adj_df2, file.path(output_dir, paste0(label, "_direct_adjusted_deviations.csv")),
+                row.names = FALSE)
+    }
+
   } else {
     # Write empty file
     write.csv(
