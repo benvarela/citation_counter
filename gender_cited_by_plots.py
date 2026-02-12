@@ -7,6 +7,7 @@ import tempfile
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+from scipy.stats import chi2_contingency, chisquare
 
 CITED_BY_PATH = "data/cited_by_info_gender.xlsx"
 DATA_PATH = "data/data.xlsx"
@@ -491,7 +492,9 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
 
     df = pd.DataFrame(rows)
 
-    fig, ax = plt.subplots(figsize=(GROUP_FIG_WIDTH, GROUP_FIG_HEIGHT))
+    overall_size = 120 / 25.4  # 120mm in inches
+    overall_fontsize = 18
+    fig, ax = plt.subplots(figsize=(overall_size, overall_size))
 
     cited_groups = df["cited_group"].values
     deviations = df["deviation_pct"].values
@@ -507,11 +510,11 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
     ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
 
     ax.set_xticks(x_pos)
-    ax.set_xticklabels([display_group_code(g) for g in cited_groups])
-    ax.set_xlabel("First and Last Author Genders")
-    ax.set_ylabel("% Deviation from Baseline")
-    ax.set_title("Over/Undercitation by Cited Gender Group")
+    ax.set_xticklabels([display_group_code(g) for g in cited_groups], fontsize=overall_fontsize)
+    ax.set_xlabel("First and Last Author Genders", fontsize=overall_fontsize, fontweight="bold")
+    ax.set_ylabel("% Deviation from Baseline", fontsize=overall_fontsize, fontweight="bold")
     style_group_axes(ax)
+    ax.tick_params(labelsize=overall_fontsize)
 
     for i, (x, dev, err, n) in enumerate(zip(x_pos, deviations, errors, counts)):
         y_anchor = dev + err if dev >= 0 else dev - err
@@ -524,17 +527,91 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
             xytext=(0, y_offset),
             ha="center",
             va=va,
-            fontsize=POSTER_THEME["tick_fontsize"],
+            fontsize=overall_fontsize,
         )
 
-    ax.text(
-        0.98, 0.98, f"n = {n_total} total citations",
-        transform=ax.transAxes, fontsize=POSTER_THEME["tick_fontsize"],
-        verticalalignment="top", horizontalalignment="right",
-        bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
-    )
-
     save_figure(fig, output_dir, "gender_group_overall")
+
+
+def overall_cited_group_stats(merged_df, data_known_df, output_dir):
+    """Chi-square tests for overall cited group over/undercitation with pairwise comparisons."""
+    groups = ["MM", "MW", "WM", "WW"]
+    baseline = data_known_df["cited_group"].value_counts(normalize=True)
+    n_total = len(merged_df)
+    obs_counts = merged_df["cited_group"].value_counts()
+
+    observed = np.array([obs_counts.get(g, 0) for g in groups])
+    expected_prop = np.array([baseline.get(g, 0) for g in groups])
+    expected = expected_prop * n_total
+
+    # 1. Overall chi-square goodness-of-fit
+    chi2, gof_p = chisquare(observed, f_exp=expected)
+    df_gof = len(groups) - 1
+
+    lines = []
+    lines.append("Overall Cited Gender Group Statistics")
+    lines.append("=" * 50)
+    lines.append(f"\nn = {n_total} total citation links\n")
+
+    lines.append("Observed vs Expected counts:")
+    for i, g in enumerate(groups):
+        dev = (observed[i] - expected[i]) / expected[i] * 100
+        lines.append(f"  {display_group_code(g)}: observed={observed[i]}, "
+                      f"expected={expected[i]:.1f}, deviation={dev:+.1f}%")
+
+    lines.append(f"\nChi-square goodness-of-fit test:")
+    lines.append(f"  X² = {chi2:.2f}, df = {df_gof}, p = {gof_p:.2e}")
+
+    # 2. Pairwise 2x2 chi-square tests
+    from itertools import combinations
+    pairs = list(combinations(range(len(groups)), 2))
+    pair_labels = []
+    pair_pvals = []
+
+    for i, j in pairs:
+        # 2x2 table: rows = group i vs group j, cols = observed vs "other"
+        table = np.array([
+            [observed[i], expected[i]],
+            [observed[j], expected[j]],
+        ])
+        # Use observed counts for both groups in a 2x2 contingency
+        # Compare ratio observed/expected between two groups
+        obs_i, obs_j = observed[i], observed[j]
+        exp_i, exp_j = expected[i], expected[j]
+        # 2x2 table: rows = actual group, cols = observed/not-observed
+        # More appropriate: test if obs_i/exp_i != obs_j/exp_j
+        # Construct table: [obs_i, total_i - obs_i] vs [obs_j, total_j - obs_j]
+        # where total = expected (under null)
+        # Use a 2x2 contingency table of observed vs expected
+        table = np.array([[obs_i, exp_i], [obs_j, exp_j]])
+        chi2_pw, p_pw, _, _ = chi2_contingency(table, correction=False)
+        pair_labels.append(f"{display_group_code(groups[i])} vs {display_group_code(groups[j])}")
+        pair_pvals.append(p_pw)
+
+    # 3. Holm-Bonferroni correction
+    n_tests = len(pair_pvals)
+    sorted_idx = np.argsort(pair_pvals)
+    corrected_p = np.ones(n_tests)
+    for rank, idx in enumerate(sorted_idx):
+        corrected_p[idx] = min(pair_pvals[idx] * (n_tests - rank), 1.0)
+    # Enforce monotonicity
+    for rank in range(1, n_tests):
+        idx = sorted_idx[rank]
+        prev_idx = sorted_idx[rank - 1]
+        corrected_p[idx] = max(corrected_p[idx], corrected_p[prev_idx])
+
+    lines.append(f"\nPairwise comparisons (Holm-Bonferroni corrected):")
+    lines.append(f"  {'Comparison':<16} {'Raw p':<14} {'Corrected p':<14} {'Sig'}")
+    for k in range(n_tests):
+        sig = "***" if corrected_p[k] < 0.001 else ("**" if corrected_p[k] < 0.01 else ("*" if corrected_p[k] < 0.05 else "ns"))
+        lines.append(f"  {pair_labels[k]:<16} {pair_pvals[k]:<14.2e} {corrected_p[k]:<14.2e} {sig}")
+
+    txt_path = os.path.join(output_dir, "gender_group_overall.txt")
+    with open(txt_path, "w") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"  Saved {txt_path}")
+    for line in lines:
+        print(f"  {line}")
 
 
 def plot_sjr_adjusted_bars(output_dir, label="group"):
@@ -883,6 +960,7 @@ def analyze_and_plot(cited_by_df, data_df, output_dir):
         if not stats.empty:
             plot_group_bars(stats, output_dir)
             plot_overall_cited_group_bars(merged_groups, data_known, output_dir)
+            overall_cited_group_stats(merged_groups, data_known, output_dir)
 
         # Group-level statistical tests
         group_stats_paths = run_r_group_stats(merged_groups, data_known, "group", output_dir)
