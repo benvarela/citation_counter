@@ -4,11 +4,13 @@
 #
 # Usage: Rscript gender_group_stats.R <input.csv> <output_dir> <label> [paper_level.csv]
 #
-# Input CSV must have columns: citing_group, cited_group, SJR_scimago (may be NA)
+# Input CSV must have columns: citing_doi, citing_group, cited_group, SJR_scimago (may be NA)
 # Optional paper-level CSV: cited_group, SJR_scimago, citation_count
 # Outputs CSV files to output_dir:
 #   <label>_chisq.csv        — chi-square test of independence
 #   <label>_residuals.csv     — standardised Pearson residuals (long format)
+#   <label>_anova.csv         — one-way ANOVA: prop cited target ~ citing_group
+#   <label>_anova_tukey.csv   — Tukey HSD post-hoc pairwise comparisons
 #   <label>_sjr_models.csv    — binary logistic regressions with SJR adjustment
 #   <label>_paper_models.csv  — paper-level: does cited_group predict citations after SJR?
 
@@ -67,6 +69,86 @@ residuals_long$std_residual <- as.vector(chi_test$stdres)
 
 write.csv(residuals_long, file.path(output_dir, paste0(label, "_residuals.csv")),
           row.names = FALSE)
+
+# ── 2b. One-way ANOVA: proportion cited TARGET ~ citing_group ────────────
+
+if ("citing_doi" %in% colnames(df)) {
+  # Aggregate to paper level: for each citing paper, compute proportion of
+  # its citation links going to each cited group
+  paper_links <- table(df$citing_doi, df$cited_group)
+  paper_totals <- rowSums(paper_links)
+
+  # Build paper-level data frame with citing_group and proportion columns
+  paper_props <- as.data.frame(paper_links / paper_totals)
+  colnames(paper_props) <- c("citing_doi", "cited_target", "prop")
+
+  # Get citing_group for each citing_doi (one unique value per doi)
+  doi_group <- unique(df[, c("citing_doi", "citing_group")])
+  paper_props <- merge(paper_props, doi_group, by = "citing_doi")
+
+  anova_rows <- list()
+  tukey_rows <- list()
+
+  for (target in group_levels) {
+    sub <- paper_props[paper_props$cited_target == target, ]
+    sub$citing_group <- factor(sub$citing_group, levels = group_levels)
+
+    fit <- aov(prop ~ citing_group, data = sub)
+    sf <- summary(fit)[[1]]
+
+    f_val <- sf["citing_group", "F value"]
+    df1   <- sf["citing_group", "Df"]
+    df2   <- sf["Residuals", "Df"]
+    p_val <- sf["citing_group", "Pr(>F)"]
+
+    # Eta-squared: SS_group / SS_total
+    ss_group <- sf["citing_group", "Sum Sq"]
+    ss_total <- ss_group + sf["Residuals", "Sum Sq"]
+    eta_sq   <- ss_group / ss_total
+
+    anova_rows[[target]] <- data.frame(
+      cited_target = target,
+      F            = f_val,
+      df1          = df1,
+      df2          = df2,
+      p_value      = p_val,
+      eta_sq       = eta_sq,
+      stringsAsFactors = FALSE
+    )
+
+    # Tukey HSD if significant
+    if (!is.na(p_val) && p_val < 0.05) {
+      tk <- TukeyHSD(fit)$citing_group
+      for (i in seq_len(nrow(tk))) {
+        tukey_rows[[length(tukey_rows) + 1]] <- data.frame(
+          cited_target = target,
+          comparison   = rownames(tk)[i],
+          diff         = tk[i, "diff"],
+          lwr          = tk[i, "lwr"],
+          upr          = tk[i, "upr"],
+          p_adj        = tk[i, "p adj"],
+          stringsAsFactors = FALSE
+        )
+      }
+    }
+  }
+
+  anova_df <- do.call(rbind, anova_rows)
+  write.csv(anova_df, file.path(output_dir, paste0(label, "_anova.csv")),
+            row.names = FALSE)
+
+  if (length(tukey_rows) > 0) {
+    tukey_df <- do.call(rbind, tukey_rows)
+  } else {
+    tukey_df <- data.frame(
+      cited_target = character(0), comparison = character(0),
+      diff = numeric(0), lwr = numeric(0), upr = numeric(0),
+      p_adj = numeric(0)
+    )
+  }
+  write.csv(tukey_df, file.path(output_dir, paste0(label, "_anova_tukey.csv")),
+            row.names = FALSE)
+}
 
 # ── 3. Binary logistic regressions with SJR adjustment ───────────────────────
 

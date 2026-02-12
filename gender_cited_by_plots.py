@@ -37,6 +37,41 @@ GROUP_LABELS = {
     "WW": "Woman First, Woman Last",
 }
 
+# Figure dimensions for group bar plots (mm → inches)
+GROUP_FIG_WIDTH_MM = 235
+GROUP_FIG_HEIGHT_MM = 125
+GROUP_FIG_WIDTH = GROUP_FIG_WIDTH_MM / 25.4
+GROUP_FIG_HEIGHT = GROUP_FIG_HEIGHT_MM / 25.4
+GROUP_BAR_EDGE_WIDTH = 2.0
+GROUP_LINE_WIDTH = 3.0
+
+POSTER_THEME = {
+    "tick_fontsize": 12,
+    "label_fontsize": 16,
+    "font_family": "Arial",
+    "spine_linewidth": 2.0,
+    "grid": False,
+}
+
+
+def style_group_axes(ax):
+    """Apply consistent poster-theme styling to group bar plot axes."""
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(POSTER_THEME["spine_linewidth"])
+    ax.spines["bottom"].set_linewidth(POSTER_THEME["spine_linewidth"])
+    ax.tick_params(width=POSTER_THEME["spine_linewidth"],
+                   labelsize=POSTER_THEME["tick_fontsize"])
+    ax.xaxis.label.set_fontsize(POSTER_THEME["label_fontsize"])
+    ax.yaxis.label.set_fontsize(POSTER_THEME["label_fontsize"])
+    ax.xaxis.label.set_fontfamily(POSTER_THEME["font_family"])
+    ax.yaxis.label.set_fontfamily(POSTER_THEME["font_family"])
+    ax.title.set_fontfamily(POSTER_THEME["font_family"])
+    if not POSTER_THEME["grid"]:
+        ax.grid(False)
+    # Add vertical padding so n= annotations don't overlap spines
+    ax.margins(y=0.15)
+
 
 def categorize_gender(prob_male):
     """Categorize a prob_male value into 'M', 'W', or 'U' (unknown)."""
@@ -379,7 +414,7 @@ def plot_group_bars(stats_df, output_dir):
         if sub.empty:
             continue
 
-        fig, ax = plt.subplots(figsize=(7, 5))
+        fig, ax = plt.subplots(figsize=(GROUP_FIG_WIDTH, GROUP_FIG_HEIGHT))
         cited_groups = sub["cited_group"].values
         deviations = sub["deviation_pct"].values
         errors = sub["se_pct"].values
@@ -389,14 +424,17 @@ def plot_group_bars(stats_df, output_dir):
         colors = [GROUP_COLORS[g] for g in cited_groups]
         x_pos = np.arange(len(cited_groups))
 
-        ax.bar(x_pos, deviations, color=colors, edgecolor="black", linewidth=0.5,
+        ax.bar(x_pos, deviations, color=colors, edgecolor="black",
+               linewidth=GROUP_BAR_EDGE_WIDTH,
                yerr=errors, capsize=5, ecolor="black")
-        ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+        ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
 
         ax.set_xticks(x_pos)
-        ax.set_xticklabels(cited_groups, fontsize=8)
+        ax.set_xticklabels(cited_groups)
+        ax.set_xlabel("First and Last Author Genders")
         ax.set_ylabel("% Deviation from Baseline")
         ax.set_title(f"Citation Pattern: {citing_grp} Citing Group ({GROUP_LABELS[citing_grp]})")
+        style_group_axes(ax)
 
         # Place n just above positive error bars and just below negative error bars
         for i, (x, dev, err, np_) in enumerate(zip(x_pos, deviations, errors, n_pairs)):
@@ -410,12 +448,12 @@ def plot_group_bars(stats_df, output_dir):
                 xytext=(0, y_offset),
                 ha="center",
                 va=va,
-                fontsize=8,
+                fontsize=POSTER_THEME["tick_fontsize"],
             )
 
         ax.text(
             0.98, 0.98, f"n = {n_total} total citations",
-            transform=ax.transAxes, fontsize=9,
+            transform=ax.transAxes, fontsize=POSTER_THEME["tick_fontsize"],
             verticalalignment="top", horizontalalignment="right",
             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
         )
@@ -448,7 +486,7 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
 
     df = pd.DataFrame(rows)
 
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, ax = plt.subplots(figsize=(GROUP_FIG_WIDTH, GROUP_FIG_HEIGHT))
 
     cited_groups = df["cited_group"].values
     deviations = df["deviation_pct"].values
@@ -458,14 +496,17 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
     colors = [GROUP_COLORS[g] for g in cited_groups]
     x_pos = np.arange(len(cited_groups))
 
-    ax.bar(x_pos, deviations, color=colors, edgecolor="black", linewidth=0.5,
+    ax.bar(x_pos, deviations, color=colors, edgecolor="black",
+           linewidth=GROUP_BAR_EDGE_WIDTH,
            yerr=errors, capsize=5, ecolor="black")
-    ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+    ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
 
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(cited_groups, fontsize=8)
+    ax.set_xticklabels(cited_groups)
+    ax.set_xlabel("First and Last Author Genders")
     ax.set_ylabel("% Deviation from Baseline")
     ax.set_title("Over/Undercitation by Cited Gender Group")
+    style_group_axes(ax)
 
     for i, (x, dev, err, n) in enumerate(zip(x_pos, deviations, errors, counts)):
         y_anchor = dev + err if dev >= 0 else dev - err
@@ -478,12 +519,12 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
             xytext=(0, y_offset),
             ha="center",
             va=va,
-            fontsize=8,
+            fontsize=POSTER_THEME["tick_fontsize"],
         )
 
     ax.text(
         0.98, 0.98, f"n = {n_total} total citations",
-        transform=ax.transAxes, fontsize=9,
+        transform=ax.transAxes, fontsize=POSTER_THEME["tick_fontsize"],
         verticalalignment="top", horizontalalignment="right",
         bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
     )
@@ -503,7 +544,7 @@ def plot_sjr_adjusted_bars(output_dir, label="group"):
         print("  Skipping SJR-adjusted bar plot: no data")
         return
 
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, ax = plt.subplots(figsize=(GROUP_FIG_WIDTH, GROUP_FIG_HEIGHT))
 
     cited_groups = df["cited_group"].values
     deviations = df["deviation_pct"].values
@@ -513,14 +554,17 @@ def plot_sjr_adjusted_bars(output_dir, label="group"):
     colors = [GROUP_COLORS[g] for g in cited_groups]
     x_pos = np.arange(len(cited_groups))
 
-    ax.bar(x_pos, deviations, color=colors, edgecolor="black", linewidth=0.5,
+    ax.bar(x_pos, deviations, color=colors, edgecolor="black",
+           linewidth=GROUP_BAR_EDGE_WIDTH,
            yerr=errors, capsize=5, ecolor="black")
-    ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+    ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
 
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(cited_groups, fontsize=8)
+    ax.set_xticklabels(cited_groups)
+    ax.set_xlabel("First and Last Author Genders")
     ax.set_ylabel("% Deviation from SJR-Adjusted Mean")
     ax.set_title("Over/Undercitation by Cited Gender Group\n(Adjusted for SJR)")
+    style_group_axes(ax)
 
     # n= labels on bars
     for i, (x, dev, err, n) in enumerate(zip(x_pos, deviations, errors, counts)):
@@ -534,13 +578,13 @@ def plot_sjr_adjusted_bars(output_dir, label="group"):
             xytext=(0, y_offset),
             ha="center",
             va=va,
-            fontsize=8,
+            fontsize=POSTER_THEME["tick_fontsize"],
         )
 
     n_total = int(df["n_links"].sum())
     ax.text(
         0.98, 0.98, f"n = {n_total} total citations",
-        transform=ax.transAxes, fontsize=9,
+        transform=ax.transAxes, fontsize=POSTER_THEME["tick_fontsize"],
         verticalalignment="top", horizontalalignment="right",
         bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
     )
@@ -560,7 +604,7 @@ def plot_direct_adjusted_bars(output_dir, label="group"):
         print("  Skipping direct-standardized bar plot: no data")
         return
 
-    fig, ax = plt.subplots(figsize=(7, 5))
+    fig, ax = plt.subplots(figsize=(GROUP_FIG_WIDTH, GROUP_FIG_HEIGHT))
 
     cited_groups = df["cited_group"].values
     deviations = df["deviation_pct"].values
@@ -570,14 +614,17 @@ def plot_direct_adjusted_bars(output_dir, label="group"):
     colors = [GROUP_COLORS[g] for g in cited_groups]
     x_pos = np.arange(len(cited_groups))
 
-    ax.bar(x_pos, deviations, color=colors, edgecolor="black", linewidth=0.5,
+    ax.bar(x_pos, deviations, color=colors, edgecolor="black",
+           linewidth=GROUP_BAR_EDGE_WIDTH,
            yerr=errors, capsize=5, ecolor="black")
-    ax.axhline(0, color="gray", linestyle="--", linewidth=1)
+    ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
 
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(cited_groups, fontsize=8)
+    ax.set_xticklabels(cited_groups)
+    ax.set_xlabel("First and Last Author Genders")
     ax.set_ylabel("% Deviation from Direct-Standardized Mean")
     ax.set_title("Over/Undercitation by Cited Gender Group\n(Direct Standardized: Proportion + SJR)")
+    style_group_axes(ax)
 
     for i, (x, dev, err, n) in enumerate(zip(x_pos, deviations, errors, counts)):
         y_anchor = dev + err if dev >= 0 else dev - err
@@ -590,13 +637,13 @@ def plot_direct_adjusted_bars(output_dir, label="group"):
             xytext=(0, y_offset),
             ha="center",
             va=va,
-            fontsize=8,
+            fontsize=POSTER_THEME["tick_fontsize"],
         )
 
     n_total = int(df["n_links"].sum())
     ax.text(
         0.98, 0.98, f"n = {n_total} total citations",
-        transform=ax.transAxes, fontsize=9,
+        transform=ax.transAxes, fontsize=POSTER_THEME["tick_fontsize"],
         verticalalignment="top", horizontalalignment="right",
         bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
     )
@@ -610,7 +657,7 @@ def run_r_group_stats(merged_df, data_known_df, label, output_dir):
 
     with tempfile.NamedTemporaryFile(mode="w", suffix=".csv", delete=False) as f:
         tmp_csv = f.name
-        merged_df[["citing_group", "cited_group", "SJR_scimago"]].to_csv(f, index=False)
+        merged_df[["citing_doi", "citing_group", "cited_group", "SJR_scimago"]].to_csv(f, index=False)
 
     # Paper-level CSV for Sections 4 & 5
     # Count citation links per cited paper from our dataset (merged_df)
@@ -642,6 +689,8 @@ def run_r_group_stats(merged_df, data_known_df, label, output_dir):
     return {
         "chisq": os.path.join(output_dir, f"{label}_chisq.csv"),
         "residuals": os.path.join(output_dir, f"{label}_residuals.csv"),
+        "anova": os.path.join(output_dir, f"{label}_anova.csv"),
+        "anova_tukey": os.path.join(output_dir, f"{label}_anova_tukey.csv"),
         "sjr_models": os.path.join(output_dir, f"{label}_sjr_models.csv"),
         "paper_models": os.path.join(output_dir, f"{label}_paper_models.csv"),
         "adjusted_deviations": os.path.join(output_dir, f"{label}_adjusted_deviations.csv"),
@@ -667,6 +716,26 @@ def print_group_stats_summary(paths):
         print(f"    {r['citing_group']} → {r['cited_group']}: "
               f"z = {r['std_residual']:+.2f} "
               f"(obs={int(r['observed'])}, exp={r['expected']:.1f}){flag}")
+
+    # ANOVA: citing group → cited group proportions
+    if "anova" in paths and os.path.exists(paths["anova"]):
+        anova = pd.read_csv(paths["anova"])
+        if len(anova) > 0:
+            print(f"\n  One-way ANOVA (prop cited TARGET ~ citing_group):")
+            print(f"    {'Target':<8} {'F':<10} {'df1':<6} {'df2':<8} {'p':<14} {'eta²':<10}")
+            for _, r in anova.iterrows():
+                p_str = f"{r['p_value']:.2e}" if r["p_value"] < 0.001 else f"{r['p_value']:.4f}"
+                print(f"    {r['cited_target']:<8} {r['F']:<10.2f} {int(r['df1']):<6} "
+                      f"{int(r['df2']):<8} {p_str:<14} {r['eta_sq']:.4f}")
+
+    if "anova_tukey" in paths and os.path.exists(paths["anova_tukey"]):
+        tukey = pd.read_csv(paths["anova_tukey"])
+        sig_tukey = tukey[tukey["p_adj"] < 0.05]
+        if len(sig_tukey) > 0:
+            print(f"\n  Significant Tukey HSD pairs (p < 0.05):")
+            for _, r in sig_tukey.iterrows():
+                print(f"    {r['cited_target']}: {r['comparison']}: "
+                      f"diff = {r['diff']:+.4f}, p = {r['p_adj']:.4f}")
 
     # SJR models
     sjr = pd.read_csv(paths["sjr_models"])
