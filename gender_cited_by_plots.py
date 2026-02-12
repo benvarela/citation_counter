@@ -31,10 +31,10 @@ GROUP_COLORS = {
 }
 
 GROUP_LABELS = {
-    "MM": "Man First, Man Last",
-    "MW": "Man First, Woman Last",
-    "WM": "Woman First, Man Last",
-    "WW": "Woman First, Woman Last",
+    "MM": "Male First, Male Last",
+    "MW": "Male First, Female Last",
+    "WM": "Female First, Male Last",
+    "WW": "Female First, Female Last",
 }
 
 # Figure dimensions for group bar plots (mm → inches)
@@ -72,6 +72,9 @@ def style_group_axes(ax):
     # Add vertical padding so n= annotations don't overlap spines
     ax.margins(y=0.15)
 
+def display_group_code(code):
+    """Display group codes with F instead of W for plot output."""
+    return code.replace("W", "F")
 
 def categorize_gender(prob_male):
     """Categorize a prob_male value into 'M', 'W', or 'U' (unknown)."""
@@ -430,10 +433,12 @@ def plot_group_bars(stats_df, output_dir):
         ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
 
         ax.set_xticks(x_pos)
-        ax.set_xticklabels(cited_groups)
+        ax.set_xticklabels([display_group_code(g) for g in cited_groups])
         ax.set_xlabel("First and Last Author Genders")
         ax.set_ylabel("% Deviation from Baseline")
-        ax.set_title(f"Citation Pattern: {citing_grp} Citing Group ({GROUP_LABELS[citing_grp]})")
+        ax.set_title(
+            f"Citation Pattern: {display_group_code(citing_grp)} Citing Group ({GROUP_LABELS[citing_grp]})"
+        )
         style_group_axes(ax)
 
         # Place n just above positive error bars and just below negative error bars
@@ -502,7 +507,7 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
     ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
 
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(cited_groups)
+    ax.set_xticklabels([display_group_code(g) for g in cited_groups])
     ax.set_xlabel("First and Last Author Genders")
     ax.set_ylabel("% Deviation from Baseline")
     ax.set_title("Over/Undercitation by Cited Gender Group")
@@ -560,7 +565,7 @@ def plot_sjr_adjusted_bars(output_dir, label="group"):
     ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
 
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(cited_groups)
+    ax.set_xticklabels([display_group_code(g) for g in cited_groups])
     ax.set_xlabel("First and Last Author Genders")
     ax.set_ylabel("% Deviation from SJR-Adjusted Mean")
     ax.set_title("Over/Undercitation by Cited Gender Group\n(Adjusted for SJR)")
@@ -620,7 +625,7 @@ def plot_direct_adjusted_bars(output_dir, label="group"):
     ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
 
     ax.set_xticks(x_pos)
-    ax.set_xticklabels(cited_groups)
+    ax.set_xticklabels([display_group_code(g) for g in cited_groups])
     ax.set_xlabel("First and Last Author Genders")
     ax.set_ylabel("% Deviation from Direct-Standardized Mean")
     ax.set_title("Over/Undercitation by Cited Gender Group\n(Direct Standardized: Proportion + SJR)")
