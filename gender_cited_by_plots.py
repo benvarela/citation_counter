@@ -54,6 +54,21 @@ POSTER_THEME = {
     "grid": False,
 }
 
+JOURNAL_THEME = {
+    'tick_fontsize': 5.5,
+    'label_fontsize': 6.5,
+    'legend_fontsize': 6,
+    'annotation_fontsize': 6.5,
+    'font_family': 'Arial',
+    'spine_linewidth': 1.0,
+    'trendline_linewidth': 1.5,
+    'box_linewidth': 0.75,
+    'grid': False,
+    'output_subfolder': 'journal',
+    'width_mm': 48.4,
+    'height_mm': 46.2,
+}
+
 
 def style_group_axes(ax):
     """Apply consistent poster-theme styling to group bar plot axes."""
@@ -71,6 +86,26 @@ def style_group_axes(ax):
     if not POSTER_THEME["grid"]:
         ax.grid(False)
     # Add vertical padding so n= annotations don't overlap spines
+    ax.margins(y=0.15)
+
+
+def style_journal_axes(ax):
+    """Apply journal-theme styling to axes."""
+    ax.spines["top"].set_visible(False)
+    ax.spines["right"].set_visible(False)
+    ax.spines["left"].set_linewidth(JOURNAL_THEME["spine_linewidth"])
+    ax.spines["bottom"].set_linewidth(JOURNAL_THEME["spine_linewidth"])
+    ax.tick_params(width=JOURNAL_THEME["spine_linewidth"],
+                   labelsize=JOURNAL_THEME["tick_fontsize"])
+    ax.xaxis.label.set_fontsize(JOURNAL_THEME["label_fontsize"])
+    ax.yaxis.label.set_fontsize(JOURNAL_THEME["label_fontsize"])
+    ax.xaxis.label.set_fontweight("bold")
+    ax.yaxis.label.set_fontweight("bold")
+    ax.xaxis.label.set_fontfamily(JOURNAL_THEME["font_family"])
+    ax.yaxis.label.set_fontfamily(JOURNAL_THEME["font_family"])
+    ax.title.set_fontfamily(JOURNAL_THEME["font_family"])
+    if not JOURNAL_THEME["grid"]:
+        ax.grid(False)
     ax.margins(y=0.15)
 
 def display_group_code(code):
@@ -249,6 +284,15 @@ def save_figure(fig, output_dir, filename):
     print(f"  Saved {filename}.png and {filename}.svg")
 
 
+def save_figure_journal(fig, output_dir, filename):
+    """Save journal figure at exact canvas size (tight_layout, no bbox expansion)."""
+    fig.tight_layout()
+    fig.savefig(os.path.join(output_dir, f"{filename}.png"), dpi=300)
+    fig.savefig(os.path.join(output_dir, f"{filename}.svg"))
+    plt.close(fig)
+    print(f"  Saved {filename}.png and {filename}.svg")
+
+
 def plot_binned_expectation(binned_df, reg_df, title, output_dir, filename):
     """Bar chart of binned E[p_cited] - baseline with SE error bars and linear fit."""
     fig, ax = plt.subplots(figsize=(8, 5))
@@ -413,12 +457,17 @@ def compute_group_stats(merged_df, data_known_df):
 
 def plot_group_bars(stats_df, output_dir):
     """Create one bar plot per citing group showing % deviation from baseline."""
+    journal_dir = os.path.join(output_dir, JOURNAL_THEME["output_subfolder"])
+    os.makedirs(journal_dir, exist_ok=True)
+    fig_w = JOURNAL_THEME["width_mm"] / 25.4
+    fig_h = JOURNAL_THEME["height_mm"] / 25.4
+
     for citing_grp in ["MM", "MW", "WM", "WW"]:
         sub = stats_df[stats_df["citing_group"] == citing_grp]
         if sub.empty:
             continue
 
-        fig, ax = plt.subplots(figsize=(GROUP_FIG_WIDTH, GROUP_FIG_HEIGHT))
+        fig, ax = plt.subplots(figsize=(fig_w, fig_h))
         cited_groups = sub["cited_group"].values
         deviations = sub["deviation_pct"].values
         errors = sub["se_pct"].values
@@ -429,9 +478,9 @@ def plot_group_bars(stats_df, output_dir):
         x_pos = np.arange(len(cited_groups))
 
         ax.bar(x_pos, deviations, color=colors, edgecolor="black",
-               linewidth=GROUP_BAR_EDGE_WIDTH,
-               yerr=errors, capsize=5, ecolor="black")
-        ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
+               linewidth=JOURNAL_THEME["box_linewidth"],
+               yerr=errors, capsize=3, ecolor="black", error_kw={"linewidth": JOURNAL_THEME["box_linewidth"]})
+        ax.axhline(0, color="gray", linestyle="--", linewidth=JOURNAL_THEME["trendline_linewidth"])
 
         ax.set_xticks(x_pos)
         ax.set_xticklabels([display_group_code(g) for g in cited_groups])
@@ -440,9 +489,8 @@ def plot_group_bars(stats_df, output_dir):
         ax.set_title(
             f"Citation Pattern: {display_group_code(citing_grp)} Citing Group ({GROUP_LABELS[citing_grp]})"
         )
-        style_group_axes(ax)
+        style_journal_axes(ax)
 
-        # Place n just above positive error bars and just below negative error bars
         for i, (x, dev, err, np_) in enumerate(zip(x_pos, deviations, errors, n_pairs)):
             y_anchor = dev + err if dev >= 0 else dev - err
             y_offset = 3 if dev >= 0 else -3
@@ -454,17 +502,17 @@ def plot_group_bars(stats_df, output_dir):
                 xytext=(0, y_offset),
                 ha="center",
                 va=va,
-                fontsize=POSTER_THEME["tick_fontsize"],
+                fontsize=JOURNAL_THEME["annotation_fontsize"],
             )
 
         ax.text(
             0.98, 0.98, f"n = {n_total} total citations",
-            transform=ax.transAxes, fontsize=POSTER_THEME["tick_fontsize"],
+            transform=ax.transAxes, fontsize=JOURNAL_THEME["tick_fontsize"],
             verticalalignment="top", horizontalalignment="right",
             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
         )
 
-        save_figure(fig, output_dir, f"gender_group_{citing_grp}")
+        save_figure_journal(fig, journal_dir, f"gender_group_{citing_grp}")
 
 
 def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
@@ -492,9 +540,11 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
 
     df = pd.DataFrame(rows)
 
-    overall_size = 120 / 25.4  # 120mm in inches
-    overall_fontsize = 18
-    fig, ax = plt.subplots(figsize=(overall_size, overall_size))
+    journal_dir = os.path.join(output_dir, JOURNAL_THEME["output_subfolder"])
+    os.makedirs(journal_dir, exist_ok=True)
+    fig_w = JOURNAL_THEME["width_mm"] / 25.4
+    fig_h = JOURNAL_THEME["height_mm"] / 25.4
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 
     cited_groups = df["cited_group"].values
     deviations = df["deviation_pct"].values
@@ -505,16 +555,15 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
     x_pos = np.arange(len(cited_groups))
 
     ax.bar(x_pos, deviations, color=colors, edgecolor="black",
-           linewidth=GROUP_BAR_EDGE_WIDTH,
-           yerr=errors, capsize=5, ecolor="black")
-    ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
+           linewidth=JOURNAL_THEME["box_linewidth"],
+           yerr=errors, capsize=3, ecolor="black", error_kw={"linewidth": JOURNAL_THEME["box_linewidth"]})
+    ax.axhline(0, color="gray", linestyle="--", linewidth=JOURNAL_THEME["trendline_linewidth"])
 
     ax.set_xticks(x_pos)
-    ax.set_xticklabels([display_group_code(g) for g in cited_groups], fontsize=overall_fontsize)
-    ax.set_xlabel("First and Last Author Genders", fontsize=overall_fontsize, fontweight="bold")
-    ax.set_ylabel("% Deviation from Baseline", fontsize=overall_fontsize, fontweight="bold")
-    style_group_axes(ax)
-    ax.tick_params(labelsize=overall_fontsize)
+    ax.set_xticklabels([display_group_code(g) for g in cited_groups])
+    ax.set_xlabel("First and Last Author Genders")
+    ax.set_ylabel("% Deviation from Baseline")
+    style_journal_axes(ax)
 
     for i, (x, dev, err, n) in enumerate(zip(x_pos, deviations, errors, counts)):
         y_anchor = dev + err if dev >= 0 else dev - err
@@ -527,10 +576,10 @@ def plot_overall_cited_group_bars(merged_df, data_known_df, output_dir):
             xytext=(0, y_offset),
             ha="center",
             va=va,
-            fontsize=overall_fontsize,
+            fontsize=JOURNAL_THEME["tick_fontsize"],
         )
 
-    save_figure(fig, output_dir, "gender_group_overall")
+    save_figure_journal(fig, journal_dir, "gender_group_overall")
 
 
 def overall_cited_group_stats(merged_df, data_known_df, output_dir):
@@ -626,7 +675,11 @@ def plot_sjr_adjusted_bars(output_dir, label="group"):
         print("  Skipping SJR-adjusted bar plot: no data")
         return
 
-    fig, ax = plt.subplots(figsize=(GROUP_FIG_WIDTH, GROUP_FIG_HEIGHT))
+    journal_dir = os.path.join(output_dir, JOURNAL_THEME["output_subfolder"])
+    os.makedirs(journal_dir, exist_ok=True)
+    fig_w = JOURNAL_THEME["width_mm"] / 25.4
+    fig_h = JOURNAL_THEME["height_mm"] / 25.4
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 
     cited_groups = df["cited_group"].values
     deviations = df["deviation_pct"].values
@@ -637,18 +690,17 @@ def plot_sjr_adjusted_bars(output_dir, label="group"):
     x_pos = np.arange(len(cited_groups))
 
     ax.bar(x_pos, deviations, color=colors, edgecolor="black",
-           linewidth=GROUP_BAR_EDGE_WIDTH,
-           yerr=errors, capsize=5, ecolor="black")
-    ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
+           linewidth=JOURNAL_THEME["box_linewidth"],
+           yerr=errors, capsize=3, ecolor="black", error_kw={"linewidth": JOURNAL_THEME["box_linewidth"]})
+    ax.axhline(0, color="gray", linestyle="--", linewidth=JOURNAL_THEME["trendline_linewidth"])
 
     ax.set_xticks(x_pos)
     ax.set_xticklabels([display_group_code(g) for g in cited_groups])
     ax.set_xlabel("First and Last Author Genders")
     ax.set_ylabel("% Deviation from SJR-Adjusted Mean")
     ax.set_title("Over/Undercitation by Cited Gender Group\n(Adjusted for SJR)")
-    style_group_axes(ax)
+    style_journal_axes(ax)
 
-    # n= labels on bars
     for i, (x, dev, err, n) in enumerate(zip(x_pos, deviations, errors, counts)):
         y_anchor = dev + err if dev >= 0 else dev - err
         y_offset = 3 if dev >= 0 else -3
@@ -660,18 +712,18 @@ def plot_sjr_adjusted_bars(output_dir, label="group"):
             xytext=(0, y_offset),
             ha="center",
             va=va,
-            fontsize=POSTER_THEME["tick_fontsize"],
+            fontsize=JOURNAL_THEME["annotation_fontsize"],
         )
 
     n_total = int(df["n_links"].sum())
     ax.text(
         0.98, 0.98, f"n = {n_total} total citations",
-        transform=ax.transAxes, fontsize=POSTER_THEME["tick_fontsize"],
+        transform=ax.transAxes, fontsize=JOURNAL_THEME["tick_fontsize"],
         verticalalignment="top", horizontalalignment="right",
         bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
     )
 
-    save_figure(fig, output_dir, "gender_group_sjr_adjusted")
+    save_figure_journal(fig, journal_dir, "gender_group_sjr_adjusted")
 
 
 def plot_direct_adjusted_bars(output_dir, label="group"):
@@ -686,7 +738,11 @@ def plot_direct_adjusted_bars(output_dir, label="group"):
         print("  Skipping direct-standardized bar plot: no data")
         return
 
-    fig, ax = plt.subplots(figsize=(GROUP_FIG_WIDTH, GROUP_FIG_HEIGHT))
+    journal_dir = os.path.join(output_dir, JOURNAL_THEME["output_subfolder"])
+    os.makedirs(journal_dir, exist_ok=True)
+    fig_w = JOURNAL_THEME["width_mm"] / 25.4
+    fig_h = JOURNAL_THEME["height_mm"] / 25.4
+    fig, ax = plt.subplots(figsize=(fig_w, fig_h))
 
     cited_groups = df["cited_group"].values
     deviations = df["deviation_pct"].values
@@ -697,16 +753,16 @@ def plot_direct_adjusted_bars(output_dir, label="group"):
     x_pos = np.arange(len(cited_groups))
 
     ax.bar(x_pos, deviations, color=colors, edgecolor="black",
-           linewidth=GROUP_BAR_EDGE_WIDTH,
-           yerr=errors, capsize=5, ecolor="black")
-    ax.axhline(0, color="gray", linestyle="--", linewidth=GROUP_LINE_WIDTH)
+           linewidth=JOURNAL_THEME["box_linewidth"],
+           yerr=errors, capsize=3, ecolor="black", error_kw={"linewidth": JOURNAL_THEME["box_linewidth"]})
+    ax.axhline(0, color="gray", linestyle="--", linewidth=JOURNAL_THEME["trendline_linewidth"])
 
     ax.set_xticks(x_pos)
     ax.set_xticklabels([display_group_code(g) for g in cited_groups])
     ax.set_xlabel("First and Last Author Genders")
     ax.set_ylabel("% Deviation from Direct-Standardized Mean")
     ax.set_title("Over/Undercitation by Cited Gender Group\n(Direct Standardized: Proportion + SJR)")
-    style_group_axes(ax)
+    style_journal_axes(ax)
 
     for i, (x, dev, err, n) in enumerate(zip(x_pos, deviations, errors, counts)):
         y_anchor = dev + err if dev >= 0 else dev - err
@@ -719,18 +775,18 @@ def plot_direct_adjusted_bars(output_dir, label="group"):
             xytext=(0, y_offset),
             ha="center",
             va=va,
-            fontsize=POSTER_THEME["tick_fontsize"],
+            fontsize=JOURNAL_THEME["annotation_fontsize"],
         )
 
     n_total = int(df["n_links"].sum())
     ax.text(
         0.98, 0.98, f"n = {n_total} total citations",
-        transform=ax.transAxes, fontsize=POSTER_THEME["tick_fontsize"],
+        transform=ax.transAxes, fontsize=JOURNAL_THEME["tick_fontsize"],
         verticalalignment="top", horizontalalignment="right",
         bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow", alpha=0.9),
     )
 
-    save_figure(fig, output_dir, "gender_group_direct_standardized")
+    save_figure_journal(fig, journal_dir, "gender_group_direct_standardized")
 
 
 def run_r_group_stats(merged_df, data_known_df, label, output_dir):
